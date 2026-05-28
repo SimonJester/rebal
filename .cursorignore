@@ -1,0 +1,31 @@
+# Keep sensitive / personal data out of Cursor AI context (Tab, Agent, @ mentions, indexing).
+# See README.md § Privacy. Note: Agent shell commands can still read ignored paths via `cat`;
+# store API keys outside this repo (e.g. ~/.config/rebal/) and never paste them in chat.
+
+# Local settings (bills, account names, credential file paths)
+settings.json
+
+# API keys, env files, PEM material
+**/.env
+**/.env.*
+**/secrets/
+**/*credentials*
+**/*.credentials.json
+**/*.pem
+**/*.key
+**/id_rsa
+**/id_ed25519
+
+# Real broker / exchange position exports (synthetic copies allowed under tests/fixtures/)
+Portfolio_Positions_*.csv
+*Positions*.csv
+!tests/fixtures/Portfolio_Positions_*.csv
+
+# Coinbase or other exports if saved in the project tree
+coinbase_*.csv
+**/coinbase_balances*.csv
+
+# Virtualenv and caches (noise, not secrets)
+.venv/
+venv/
+.pytest_cache/

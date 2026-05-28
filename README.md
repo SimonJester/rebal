@@ -142,12 +142,19 @@ This does not upload data anywhere. Skip GitHub Actions / remote CI if you prefe
 **Safe to keep in git (no personal holdings):** `rebal.py`, `rebal_core.py`, `alloc.*.csv`
 (target weights only), `pct_of_max_alloc.csv`, `settings.example.json`, `tests/fixtures/`.
 
+**Cursor AI:** This repo includes `.cursorignore` so Tab/Agent/`@` mentions should not pull in
+`settings.json`, position exports, or credential patterns. That is best-effort—not absolute:
+enable **Privacy Mode** in Cursor settings, and add a **global ignore** for
+`~/.config/rebal/` (Settings → General → Global Cursor Ignore List) before storing Coinbase API
+keys there. Do not paste secrets into chat.
+
 **Keep local — never commit:**
 
 | File | Why |
 |------|-----|
 | `settings.json` | Bills, taxes, account names |
 | `Portfolio_Positions_*.csv` | Real positions and balances |
+| `~/.config/rebal/*.credentials.json` | Coinbase API keys (when added) |
 | Anything under `~/Downloads/` used as `--positions` | Same as above |
 
 If `settings.json` was committed earlier, stop tracking it without deleting your copy:
