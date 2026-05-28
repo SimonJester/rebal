@@ -21,9 +21,9 @@ htmlcov/
 # OS
 .DS_Store
 
-# Private / sensitive (keep local only — use kiss_settings.example.json as template)
-kiss_settings.json
-!tests/fixtures/kiss_settings.json
+# Private / sensitive (keep local only — use settings.example.json as template)
+settings.json
+!tests/fixtures/settings.json
 
 # Broker exports (usually downloaded; do not commit real holdings)
 Portfolio_Positions_*.csv

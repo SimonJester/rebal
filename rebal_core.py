@@ -163,8 +163,8 @@ def load_portfolio_config(
             for k, v in portfolios.items():
                 display = v.get('display_name', k)
                 lines.append(f"  - {k}  →  {display}")
-            lines.append("\nUsage: python rebal_kiss.py <portfolio_key>")
-            lines.append('       (or set "default_portfolio" in kiss_settings.json)')
+            lines.append("\nUsage: python rebal.py <portfolio_key>")
+            lines.append('       (or set "default_portfolio" in settings.json)')
             raise RebalError('\n'.join(lines))
         portfolio_config = dict(portfolios[portfolio_key])
         portfolio_config['portfolio_key'] = portfolio_key
@@ -173,7 +173,7 @@ def load_portfolio_config(
         portfolio_config['portfolio_key'] = 'fidelity'
         portfolio_config.setdefault('display_name', 'Fidelity Kiss Portfolio')
 
-    portfolio_config['TARGETS_FILE'] = f"kiss_alloc.{portfolio_key}.csv"
+    portfolio_config['TARGETS_FILE'] = f"alloc.{portfolio_key}.csv"
     portfolio_config.setdefault('FILE_PATTERN', 'Portfolio_Positions_*.csv')
     portfolio_config.setdefault('display_name', portfolio_key)
     return config, portfolio_config

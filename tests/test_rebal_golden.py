@@ -8,14 +8,14 @@ from tests.conftest import fixture_path
 
 
 def _run_fixture_rebalance():
-    settings = fixture_path('kiss_settings.json')
+    settings = fixture_path('settings.json')
     full_config, portfolio_config = load_portfolio_config(
         settings, cli_portfolio_key='test',
     )
     return run_rebalance(
         export_path=fixture_path('Portfolio_Positions_test.csv'),
-        targets_file=fixture_path('kiss_alloc.test.csv'),
-        pct_of_max_file=fixture_path('kiss_pct_of_max.csv'),
+        targets_file=fixture_path('alloc.test.csv'),
+        pct_of_max_file=fixture_path('pct_of_max_alloc.csv'),
         full_config=full_config,
         portfolio_config=portfolio_config,
     )
@@ -42,7 +42,7 @@ def test_fixture_golden_trade_amounts():
 
 
 def test_cash_reserve_larger_than_portfolio_rejected():
-    settings = fixture_path('kiss_settings.json')
+    settings = fixture_path('settings.json')
     full_config, portfolio_config = load_portfolio_config(
         settings, cli_portfolio_key='test',
     )
@@ -55,15 +55,15 @@ def test_cash_reserve_larger_than_portfolio_rejected():
     with pytest.raises(RebalError, match='NOT ENOUGH ASSETS FOR CASH RESERVE'):
         run_rebalance(
             export_path=fixture_path('Portfolio_Positions_test.csv'),
-            targets_file=fixture_path('kiss_alloc.test.csv'),
-            pct_of_max_file=fixture_path('kiss_pct_of_max.csv'),
+            targets_file=fixture_path('alloc.test.csv'),
+            pct_of_max_file=fixture_path('pct_of_max_alloc.csv'),
             full_config=full_config,
             portfolio_config=portfolio_config,
         )
 
 
 def test_legacy_single_portfolio_settings_still_work(tmp_path):
-    legacy = tmp_path / 'kiss_settings.json'
+    legacy = tmp_path / 'settings.json'
     legacy.write_text(
         '{\n'
         '  "BILLS_PER_MONTH_IN_USD": 1000,\n'
@@ -75,4 +75,4 @@ def test_legacy_single_portfolio_settings_still_work(tmp_path):
     )
     _, portfolio_config = load_portfolio_config(str(legacy))
     assert portfolio_config['portfolio_key'] == 'fidelity'
-    assert portfolio_config['TARGETS_FILE'] == 'kiss_alloc.fidelity.csv'
+    assert portfolio_config['TARGETS_FILE'] == 'alloc.fidelity.csv'

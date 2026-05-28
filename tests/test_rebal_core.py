@@ -22,15 +22,15 @@ from tests.conftest import FIXTURES_DIR, fixture_path
 
 
 def _load_fixture_config():
-    settings = fixture_path('kiss_settings.json')
+    settings = fixture_path('settings.json')
     full_config, portfolio_config = load_portfolio_config(settings, cli_portfolio_key='test')
     return full_config, portfolio_config
 
 
 def test_resolve_data_path_finds_alloc_beside_settings():
-    settings = fixture_path('kiss_settings.json')
-    resolved = resolve_data_path('kiss_alloc.test.csv', settings_path=settings)
-    assert resolved == fixture_path('kiss_alloc.test.csv')
+    settings = fixture_path('settings.json')
+    resolved = resolve_data_path('alloc.test.csv', settings_path=settings)
+    assert resolved == fixture_path('alloc.test.csv')
 
 
 def test_parse_account_filter_object_and_describe():
@@ -48,20 +48,20 @@ def test_parse_account_filter_legacy_string():
 def test_load_portfolio_config_resolves_test_portfolio():
     _, portfolio = _load_fixture_config()
     assert portfolio['portfolio_key'] == 'test'
-    assert portfolio['TARGETS_FILE'] == 'kiss_alloc.test.csv'
+    assert portfolio['TARGETS_FILE'] == 'alloc.test.csv'
     assert portfolio['display_name'] == 'Test Portfolio'
 
 
 def test_invalid_portfolio_key_rejected():
     with pytest.raises(RebalError, match='INVALID PORTFOLIO KEY'):
         load_portfolio_config(
-            fixture_path('kiss_settings.json'),
+            fixture_path('settings.json'),
             cli_portfolio_key='bad!key',
         )
 
 
 def test_alloc_sum_must_be_100(tmp_path):
-    bad_alloc = tmp_path / 'kiss_alloc.bad.csv'
+    bad_alloc = tmp_path / 'alloc.bad.csv'
     bad_alloc.write_text(
         'Asset_Type,Ticker,Max_Allocation_Pct\nStocks,AAA,50\n',
         encoding='utf-8',
@@ -82,7 +82,7 @@ def test_undefined_asset_type_rejected(tmp_path):
         run_rebalance(
             export_path=fixture_path('Portfolio_Positions_test.csv'),
             targets_file=str(alloc),
-            pct_of_max_file=fixture_path('kiss_pct_of_max.csv'),
+            pct_of_max_file=fixture_path('pct_of_max_alloc.csv'),
             full_config=full_config,
             portfolio_config=portfolio_config,
         )
@@ -92,8 +92,8 @@ def test_run_rebalance_trades_net_to_zero():
     full_config, portfolio_config = _load_fixture_config()
     result = run_rebalance(
         export_path=fixture_path('Portfolio_Positions_test.csv'),
-        targets_file=fixture_path('kiss_alloc.test.csv'),
-        pct_of_max_file=fixture_path('kiss_pct_of_max.csv'),
+        targets_file=fixture_path('alloc.test.csv'),
+        pct_of_max_file=fixture_path('pct_of_max_alloc.csv'),
         full_config=full_config,
         portfolio_config=portfolio_config,
     )
@@ -160,8 +160,8 @@ def test_sort_trades_zero_target_off_pct_first():
 def test_all_repo_alloc_files_sum_to_100():
     """Guardrail: production alloc CSVs must sum to 100%."""
     repo_root = FIXTURES_DIR.parent.parent
-    for path in repo_root.glob('kiss_alloc.*.csv'):
-        if path.name == 'kiss_alloc.test.csv':
+    for path in repo_root.glob('alloc.*.csv'):
+        if path.name == 'alloc.test.csv':
             continue
         df = pd.read_csv(path)
         total = df['Max_Allocation_Pct'].sum()

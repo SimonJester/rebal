@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI for Rebalance KISS — loads files, runs core logic, prints reports."""
+"""CLI for portfolio rebalancing — loads files, runs core logic, prints reports."""
 
 import argparse
 import os
@@ -18,8 +18,8 @@ from rebal_core import (
     run_rebalance,
 )
 
-DEFAULT_SETTINGS = 'kiss_settings.json'
-DEFAULT_PCT_OF_MAX = 'kiss_pct_of_max.csv'
+DEFAULT_SETTINGS = 'settings.json'
+DEFAULT_PCT_OF_MAX = 'pct_of_max_alloc.csv'
 
 
 def get_max_currency_width(values):
@@ -41,7 +41,7 @@ def print_rebalance_report(result: RebalanceResult) -> None:
             print(msg)
         print("----------------------------------\n")
 
-    print(f"\n=== REBALANCE KISS - {result.display_name} ===")
+    print(f"\n=== REBALANCE - {result.display_name} ===")
 
     if not result.df_target_summary.empty:
         print()
@@ -179,11 +179,11 @@ def _print_trade_table(trades, side: str, ticker_w_trade: int, *, is_sell: bool)
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description='Rebalance KISS portfolio helper')
+    parser = argparse.ArgumentParser(description='Portfolio rebalancing helper')
     parser.add_argument(
         'portfolio_key',
         nargs='?',
-        help='Portfolio key (default from kiss_settings.json)',
+        help='Portfolio key (default from settings.json)',
     )
     parser.add_argument(
         '--settings',
