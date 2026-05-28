@@ -1,0 +1,13 @@
+{
+  "default_portfolio": "test",
+  "portfolios": {
+    "test": {
+      "display_name": "Test Portfolio",
+      "ACCOUNT_FILTER": "Test Account",
+      "FILE_PATTERN": "Portfolio_Positions_test.csv",
+      "BILLS_PER_MONTH_IN_USD": 5000,
+      "CASH_FOR_BILLS_IN_MONTHS": 2,
+      "TAX_OWED_IN_USD": 0
+    }
+  }
+}

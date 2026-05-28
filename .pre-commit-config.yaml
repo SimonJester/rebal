@@ -1,0 +1,11 @@
+# Optional local hook — install: pip install pre-commit && pre-commit install
+# Runs only on your machine; nothing is sent to GitHub unless you push.
+repos:
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: bash scripts/check.sh
+        language: system
+        pass_filenames: false
+        always_run: true

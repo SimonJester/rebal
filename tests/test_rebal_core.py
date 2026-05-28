@@ -1,0 +1,154 @@
+"""Tests for rebal_core (no Downloads folder required)."""
+
+import os
+
+import pandas as pd
+import pytest
+
+from rebal_core import (
+    INVESTED_CASH_TICKER,
+    RebalError,
+    find_export_file,
+    load_portfolio_config,
+    load_targets_raw,
+    resolve_data_path,
+    resolve_positions_path,
+    run_rebalance,
+    sort_trades_by_off_ratio,
+)
+from tests.conftest import FIXTURES_DIR, fixture_path
+
+
+def _load_fixture_config():
+    settings = fixture_path('kiss_settings.json')
+    full_config, portfolio_config = load_portfolio_config(settings, cli_portfolio_key='test')
+    return full_config, portfolio_config
+
+
+def test_resolve_data_path_finds_alloc_beside_settings():
+    settings = fixture_path('kiss_settings.json')
+    resolved = resolve_data_path('kiss_alloc.test.csv', settings_path=settings)
+    assert resolved == fixture_path('kiss_alloc.test.csv')
+
+
+def test_load_portfolio_config_resolves_test_portfolio():
+    _, portfolio = _load_fixture_config()
+    assert portfolio['portfolio_key'] == 'test'
+    assert portfolio['TARGETS_FILE'] == 'kiss_alloc.test.csv'
+    assert portfolio['display_name'] == 'Test Portfolio'
+
+
+def test_invalid_portfolio_key_rejected():
+    with pytest.raises(RebalError, match='INVALID PORTFOLIO KEY'):
+        load_portfolio_config(
+            fixture_path('kiss_settings.json'),
+            cli_portfolio_key='bad!key',
+        )
+
+
+def test_alloc_sum_must_be_100(tmp_path):
+    bad_alloc = tmp_path / 'kiss_alloc.bad.csv'
+    bad_alloc.write_text(
+        'Asset_Type,Ticker,Max_Allocation_Pct\nStocks,AAA,50\n',
+        encoding='utf-8',
+    )
+    with pytest.raises(RebalError, match='ALLOCATION SUM VIOLATION'):
+        load_targets_raw(str(bad_alloc))
+
+
+def test_undefined_asset_type_rejected(tmp_path):
+    alloc = tmp_path / 'alloc.csv'
+    alloc.write_text(
+        'Asset_Type,Ticker,Max_Allocation_Pct\n'
+        'UnknownClass,ZZZ,100\n',
+        encoding='utf-8',
+    )
+    full_config, portfolio_config = _load_fixture_config()
+    with pytest.raises(RebalError, match='UNDEFINED ASSET TYPES'):
+        run_rebalance(
+            export_path=fixture_path('Portfolio_Positions_test.csv'),
+            targets_file=str(alloc),
+            pct_of_max_file=fixture_path('kiss_pct_of_max.csv'),
+            full_config=full_config,
+            portfolio_config=portfolio_config,
+        )
+
+
+def test_run_rebalance_trades_net_to_zero():
+    full_config, portfolio_config = _load_fixture_config()
+    result = run_rebalance(
+        export_path=fixture_path('Portfolio_Positions_test.csv'),
+        targets_file=fixture_path('kiss_alloc.test.csv'),
+        pct_of_max_file=fixture_path('kiss_pct_of_max.csv'),
+        full_config=full_config,
+        portfolio_config=portfolio_config,
+    )
+
+    assert result.cash_reserve_usd == 10_000.0
+    assert result.total_portfolio_value == 100_000.0
+
+    all_trades = pd.concat([result.trades_sell, result.trades_buy], ignore_index=True)
+    net = all_trades['Trade_Amount_USD'].sum()
+    assert abs(net) < 0.02
+
+    sell_tickers = set(result.trades_sell['Ticker'])
+    buy_tickers = set(result.trades_buy['Ticker'])
+    assert 'AAA' in sell_tickers
+    assert 'BBB' in buy_tickers
+
+
+def test_find_export_file_in_fixtures_dir():
+    found = find_export_file(
+        'Portfolio_Positions_*.csv',
+        downloads_path=str(FIXTURES_DIR),
+        search_cwd=False,
+    )
+    assert found == fixture_path('Portfolio_Positions_test.csv')
+
+
+def test_resolve_positions_path_file():
+    csv_path = fixture_path('Portfolio_Positions_test.csv')
+    assert resolve_positions_path(csv_path, 'Portfolio_Positions_*.csv') == csv_path
+
+
+def test_resolve_positions_path_directory_picks_newest(tmp_path):
+    older = tmp_path / 'Portfolio_Positions_old.csv'
+    newer = tmp_path / 'Portfolio_Positions_new.csv'
+    older.write_text('Account Name,Symbol,Current Value\n', encoding='utf-8')
+    newer.write_text('Account Name,Symbol,Current Value\n', encoding='utf-8')
+    os.utime(older, (1, 1))
+    os.utime(newer, (2, 2))
+    assert resolve_positions_path(str(tmp_path), 'Portfolio_Positions_*.csv') == str(
+        newer.resolve(),
+    )
+
+
+def test_resolve_positions_path_missing_directory_returns_none(tmp_path):
+    assert resolve_positions_path(str(tmp_path), 'Portfolio_Positions_*.csv') is None
+
+
+def test_sort_trades_zero_target_off_pct_first():
+    df = pd.DataFrame([
+        {'Ticker': 'BBB', 'Target_Allocation': 10.0, 'Off_Pct': 1.0,
+         'Off_Ratio': 0.1, 'Trade_Amount_USD': -100.0},
+        {'Ticker': 'AAA', 'Target_Allocation': 0.0, 'Off_Pct': 5.0,
+         'Off_Ratio': 0.0, 'Trade_Amount_USD': -200.0},
+        {'Ticker': INVESTED_CASH_TICKER,
+         'Target_Allocation': 5.0, 'Off_Pct': 0.5, 'Off_Ratio': 0.1,
+         'Trade_Amount_USD': 300.0},
+    ])
+    sorted_df = sort_trades_by_off_ratio(df)
+    non_cash = sorted_df[sorted_df['Ticker'] != INVESTED_CASH_TICKER]['Ticker'].tolist()
+    assert non_cash[0] == 'AAA'
+    assert sorted_df['Ticker'].iloc[-1] == INVESTED_CASH_TICKER
+
+
+def test_all_repo_alloc_files_sum_to_100():
+    """Guardrail: production alloc CSVs must sum to 100%."""
+    repo_root = FIXTURES_DIR.parent.parent
+    for path in repo_root.glob('kiss_alloc.*.csv'):
+        if path.name == 'kiss_alloc.test.csv':
+            continue
+        df = pd.read_csv(path)
+        total = df['Max_Allocation_Pct'].sum()
+        assert abs(total - 100.0) < 1e-6, f"{path.name} sums to {total}"

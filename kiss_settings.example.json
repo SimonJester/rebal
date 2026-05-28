@@ -1,0 +1,35 @@
+{
+  "default_portfolio": "fidelity",
+  "portfolios": {
+    "fidelity": {
+      "display_name": "Fidelity Kiss Portfolio",
+      "ACCOUNT_FILTER": "Your Account Name As Shown In Export",
+      "FILE_PATTERN": "Portfolio_Positions_*.csv",
+      "BILLS_PER_MONTH_IN_USD": "$0",
+      "CASH_FOR_BILLS_IN_MONTHS": "0",
+      "TAX_OWED_IN_USD": "$0"
+    },
+    "fidelity-crypto": {
+      "display_name": "Fidelity Crypto",
+      "ACCOUNT_FILTER": "Your Crypto Account Name",
+      "FILE_PATTERN": "Portfolio_Positions_*.csv",
+      "BILLS_PER_MONTH_IN_USD": 0,
+      "CASH_FOR_BILLS_IN_MONTHS": 0,
+      "TAX_OWED_IN_USD": 0
+    },
+    "coinbase-btc": {
+      "display_name": "Coinbase BTC",
+      "FILE_PATTERN": "Portfolio_Positions_*.csv",
+      "BILLS_PER_MONTH_IN_USD": 0,
+      "CASH_FOR_BILLS_IN_MONTHS": 0,
+      "TAX_OWED_IN_USD": 0
+    },
+    "coinbase-eth": {
+      "display_name": "Coinbase ETH",
+      "FILE_PATTERN": "Portfolio_Positions_*.csv",
+      "BILLS_PER_MONTH_IN_USD": 0,
+      "CASH_FOR_BILLS_IN_MONTHS": 0,
+      "TAX_OWED_IN_USD": 0
+    }
+  }
+}
