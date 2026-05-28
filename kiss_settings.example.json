@@ -3,7 +3,10 @@
   "portfolios": {
     "fidelity": {
       "display_name": "Fidelity Kiss Portfolio",
-      "ACCOUNT_FILTER": "Your Account Name As Shown In Export",
+      "ACCOUNT_FILTER": {
+        "column": "Account Name",
+        "value": "Your Account Name As Shown In Export"
+      },
       "FILE_PATTERN": "Portfolio_Positions_*.csv",
       "BILLS_PER_MONTH_IN_USD": "$0",
       "CASH_FOR_BILLS_IN_MONTHS": "0",
@@ -11,7 +14,10 @@
     },
     "fidelity-crypto": {
       "display_name": "Fidelity Crypto",
-      "ACCOUNT_FILTER": "Your Crypto Account Name",
+      "ACCOUNT_FILTER": {
+        "column": "Account Name",
+        "value": "Crypto Portfolio"
+      },
       "FILE_PATTERN": "Portfolio_Positions_*.csv",
       "BILLS_PER_MONTH_IN_USD": 0,
       "CASH_FOR_BILLS_IN_MONTHS": 0,

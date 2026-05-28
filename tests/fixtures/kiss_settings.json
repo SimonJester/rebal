@@ -3,7 +3,10 @@
   "portfolios": {
     "test": {
       "display_name": "Test Portfolio",
-      "ACCOUNT_FILTER": "Test Account",
+      "ACCOUNT_FILTER": {
+        "column": "Account Name",
+        "value": "Test Account"
+      },
       "FILE_PATTERN": "Portfolio_Positions_test.csv",
       "BILLS_PER_MONTH_IN_USD": 5000,
       "CASH_FOR_BILLS_IN_MONTHS": 2,

@@ -81,7 +81,10 @@ so dollar amounts and account names are not committed by mistake.
   "portfolios": {
     "fidelity": {
       "display_name": "Fidelity Kiss Portfolio",
-      "ACCOUNT_FILTER": "Kiss Portfolio",
+      "ACCOUNT_FILTER": {
+        "column": "Account Name",
+        "value": "Kiss Portfolio"
+      },
       "FILE_PATTERN": "Portfolio_Positions_*.csv",
       "BILLS_PER_MONTH_IN_USD": "$21,303",
       "CASH_FOR_BILLS_IN_MONTHS": "0.6529",
@@ -104,7 +107,8 @@ Top-level keys (no `portfolios` object) still work; the script treats the portfo
 
 Required per portfolio: `BILLS_PER_MONTH_IN_USD`, `CASH_FOR_BILLS_IN_MONTHS`, `TAX_OWED_IN_USD`. Dollar amounts may include `$` and commas.
 
-Optional: `ACCOUNT_FILTER` (exact `Account Name` in export), `FILE_PATTERN`, `display_name`.
+Optional: `ACCOUNT_FILTER` (`column` + `value` matched in the positions CSV), `FILE_PATTERN`,
+`display_name`. Legacy string values still work (treated as `Account Name` = that string).
 
 ## Portfolios in this repo
 

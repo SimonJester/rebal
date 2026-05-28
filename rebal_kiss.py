@@ -98,9 +98,9 @@ def print_rebalance_report(result: RebalanceResult) -> None:
     if not result.df_current_portfolio.empty:
         print(os.path.basename(result.export_path))
         if result.account_filter:
-            print(f"Filtering portfolio to account: '{result.account_filter}'")
+            print(result.account_filter.describe())
         else:
-            print("No ACCOUNT_FILTER specified → using ALL accounts from export.")
+            print("No ACCOUNT_FILTER specified → using ALL rows from export.")
         print()
 
         header_text = 'Current_USD'

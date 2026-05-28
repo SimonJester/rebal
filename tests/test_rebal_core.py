@@ -7,10 +7,12 @@ import pytest
 
 from rebal_core import (
     INVESTED_CASH_TICKER,
+    AccountFilter,
     RebalError,
     find_export_file,
     load_portfolio_config,
     load_targets_raw,
+    parse_account_filter,
     resolve_data_path,
     resolve_positions_path,
     run_rebalance,
@@ -29,6 +31,18 @@ def test_resolve_data_path_finds_alloc_beside_settings():
     settings = fixture_path('kiss_settings.json')
     resolved = resolve_data_path('kiss_alloc.test.csv', settings_path=settings)
     assert resolved == fixture_path('kiss_alloc.test.csv')
+
+
+def test_parse_account_filter_object_and_describe():
+    filt = parse_account_filter({'column': 'Account Name', 'value': 'Kiss Portfolio'})
+    assert filt == AccountFilter(column='Account Name', value='Kiss Portfolio')
+    assert filt.describe() == "Filtered: 'Account Name' = 'Kiss Portfolio'"
+
+
+def test_parse_account_filter_legacy_string():
+    filt = parse_account_filter('Test Account')
+    assert filt.column == 'Account Name'
+    assert filt.value == 'Test Account'
 
 
 def test_load_portfolio_config_resolves_test_portfolio():

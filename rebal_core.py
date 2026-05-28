@@ -47,11 +47,52 @@ class RebalError(Exception):
     """Validation or data error; message is suitable for printing to the user."""
 
 
+@dataclass(frozen=True)
+class AccountFilter:
+    column: str
+    value: str
+
+    def describe(self) -> str:
+        return f"Filtered: '{self.column}' = '{self.value}'"
+
+
+def parse_account_filter(raw: Any) -> AccountFilter | None:
+    """Parse ACCOUNT_FILTER from settings (object or legacy string)."""
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        stripped = raw.strip()
+        if not stripped:
+            return None
+        return AccountFilter(column='Account Name', value=stripped)
+    if isinstance(raw, dict):
+        column = raw.get('column') or raw.get('Column')
+        value = raw.get('value') or raw.get('Value')
+        if not column or value is None:
+            raise RebalError(
+                "\n*** ERROR: INVALID ACCOUNT_FILTER ***\n"
+                "ACCOUNT_FILTER object must include 'column' and 'value', e.g.\n"
+                '  "ACCOUNT_FILTER": {"column": "Account Name", "value": "Kiss Portfolio"}'
+            )
+        value_str = str(value).strip()
+        column_str = str(column).strip()
+        if not column_str or not value_str:
+            raise RebalError(
+                "\n*** ERROR: INVALID ACCOUNT_FILTER ***\n"
+                "ACCOUNT_FILTER 'column' and 'value' must be non-empty strings."
+            )
+        return AccountFilter(column=column_str, value=value_str)
+    raise RebalError(
+        "\n*** ERROR: INVALID ACCOUNT_FILTER ***\n"
+        "ACCOUNT_FILTER must be a string or an object with 'column' and 'value'."
+    )
+
+
 @dataclass
 class RebalanceResult:
     display_name: str
     export_path: str
-    account_filter: str | None
+    account_filter: AccountFilter | None
     default_messages: list[str]
     df_target_summary: pd.DataFrame
     bills_per_month_usd: float
@@ -351,7 +392,7 @@ def normalize_targets(df_targets: pd.DataFrame) -> pd.DataFrame:
 
 def parse_portfolio_export(
     export_path: str,
-    account_filter: str | None,
+    account_filter: AccountFilter | None,
 ) -> pd.DataFrame:
     try:
         df_raw = pd.read_csv(
@@ -368,11 +409,16 @@ def parse_portfolio_export(
         ) from None
 
     df_raw.columns = df_raw.columns.str.strip()
-    if 'Account Name' in df_raw.columns:
-        df_raw['Account Name'] = df_raw['Account Name'].astype(str).str.strip()
 
     if account_filter:
-        df_filtered = df_raw[df_raw['Account Name'] == account_filter].copy()
+        column = account_filter.column
+        if column not in df_raw.columns:
+            raise RebalError(
+                f"\n*** ERROR: POSITIONS FILE MISSING FILTER COLUMN ***\n"
+                f"ACCOUNT_FILTER expects column '{column}', which is not in the export."
+            )
+        df_raw[column] = df_raw[column].astype(str).str.strip()
+        df_filtered = df_raw[df_raw[column] == account_filter.value].copy()
     else:
         df_filtered = df_raw.copy()
 
@@ -481,7 +527,7 @@ def run_rebalance(
     display_name = portfolio_config.get(
         'display_name', portfolio_config['portfolio_key'],
     )
-    account_filter = portfolio_config.get('ACCOUNT_FILTER')
+    account_filter = parse_account_filter(portfolio_config.get('ACCOUNT_FILTER'))
 
     df_targets_raw = load_targets_raw(targets_file)
     df_pct_of_max = load_pct_of_max(pct_of_max_file)
