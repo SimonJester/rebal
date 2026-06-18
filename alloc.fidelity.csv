@@ -1,8 +1,8 @@
 Asset_Type,Ticker,Max_Allocation_Pct
-Bitcoin,FBTC,19
-Bitcoin,IBIT,18
+Bitcoin,FBTC,20
+Bitcoin,IBIT,20
 Gold,GLDM,20
 Stocks,VT,0
-Stocks,VTI,26
-Stocks,VXUS,17
+Stocks,VTI,24
+Stocks,VXUS,16
 Kiss,KISS,0

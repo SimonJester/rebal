@@ -5,7 +5,8 @@ repos:
     hooks:
       - id: pytest
         name: pytest
-        entry: bash scripts/check.sh
+        entry: pytest
         language: system
         pass_filenames: false
         always_run: true
+
