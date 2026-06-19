@@ -22,7 +22,7 @@ INVESTED_CASH_TICKER = 'INVESTED_CASH'
 NON_RESERVE_KEYS = {
     'ACCOUNT_FILTER', 'FILE_PATTERN', 'display_name', 'portfolio_key',
     'portfolios', 'default_portfolio', 'TARGETS_FILE',
-    'CASH_FOR_BILLS_SOURCE', '_comment_CASH_FOR_BILLS',
+    'CASH_FOR_BILLS_SOURCE',
 }
 
 REQUIRED_ALLOC_COLS = ['Asset_Type', 'Ticker', 'Max_Allocation_Pct']

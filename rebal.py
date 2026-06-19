@@ -89,7 +89,7 @@ def print_rebalance_report(result: RebalanceResult) -> None:
 
     # Cash for Bills line (with optional source annotation)
     bills_num = f"{result.cash_for_bills_usd:>{num_align_w},.2f}"
-    bills_line = f"{'Cash for Bills (Not Invested)':<{item_w}} {f'$ {bills_num}':>{value_col_w}}"
+    print(f"{'Cash for Bills (Not Invested)':<{item_w}} {f'$ {bills_num}':>{value_col_w}}")
     if result.cash_for_bills_source:
         bills_v = _format_source_float(
             result.cash_for_bills_source.get('BILLS_PER_MONTH_IN_USD', 0),
@@ -97,8 +97,7 @@ def print_rebalance_report(result: RebalanceResult) -> None:
         months_v = _format_source_float(
             result.cash_for_bills_source.get('CASH_FOR_BILLS_IN_MONTHS', 0),
         )
-        bills_line += f"  (${bills_v:,.2f}/mo \u00d7 {months_v:g} mo)"
-    print(bills_line)
+        print(f"  (${bills_v:,.2f}/mo \u00d7 {months_v:g} mo)")
 
     # Estimated Taxes Owed
     tax_num = f"{result.tax_owed_usd:>{num_align_w},.2f}"
