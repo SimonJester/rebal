@@ -6,7 +6,8 @@ import pandas as pd
 import pytest
 
 from rebal_core import (
-    INVESTED_CASH_TICKER,
+    CASH_META_TICKER,
+    FIDELITY_CASH_SYMBOLS,
     AccountFilter,
     RebalError,
     find_export_file,
@@ -16,6 +17,7 @@ from rebal_core import (
     resolve_cash_for_bills,
     resolve_data_path,
     resolve_positions_path,
+    resolve_safe_asset,
     run_rebalance,
     sort_trades_by_off_ratio,
 )
@@ -148,14 +150,14 @@ def test_sort_trades_zero_target_off_pct_first():
          'Off_Ratio': 0.1, 'Trade_Amount_USD': -100.0},
         {'Ticker': 'AAA', 'Target_Allocation': 0.0, 'Off_Pct': 5.0,
          'Off_Ratio': 0.0, 'Trade_Amount_USD': -200.0},
-        {'Ticker': INVESTED_CASH_TICKER,
+        {'Ticker': CASH_META_TICKER,
          'Target_Allocation': 5.0, 'Off_Pct': 0.5, 'Off_Ratio': 0.1,
          'Trade_Amount_USD': 300.0},
     ])
     sorted_df = sort_trades_by_off_ratio(df)
-    non_cash = sorted_df[sorted_df['Ticker'] != INVESTED_CASH_TICKER]['Ticker'].tolist()
+    non_cash = sorted_df[sorted_df['Ticker'] != CASH_META_TICKER]['Ticker'].tolist()
     assert non_cash[0] == 'AAA'
-    assert sorted_df['Ticker'].iloc[-1] == INVESTED_CASH_TICKER
+    assert sorted_df['Ticker'].iloc[-1] == CASH_META_TICKER
 
 
 def test_all_repo_alloc_files_sum_to_100():
@@ -266,3 +268,217 @@ def test_run_rebalance_zero_cash_when_both_missing():
     )
     assert result.cash_for_bills_usd == 0.0
     assert result.cash_reserve_usd == 0.0
+
+
+# --- SAFE_ASSET resolution tests ---
+
+
+def test_resolve_safe_asset_default_is_cash():
+    """SAFE_ASSET defaults to _CASH when not specified."""
+    assert resolve_safe_asset({}) == '_CASH'
+
+
+def test_resolve_safe_asset_explicit_cash():
+    assert resolve_safe_asset({'SAFE_ASSET': '_CASH'}) == '_CASH'
+
+
+def test_resolve_safe_asset_real_ticker():
+    assert resolve_safe_asset({'SAFE_ASSET': 'KISS'}) == 'KISS'
+
+
+def test_resolve_safe_asset_case_insensitive():
+    assert resolve_safe_asset({'SAFE_ASSET': 'kiss'}) == 'KISS'
+
+
+def test_resolve_safe_asset_rejects_cash_symbol():
+    """SAFE_ASSET cannot be a FIDELITY_CASH_SYMBOLS entry."""
+    for sym in ['SPAXX**', 'SHV', 'USFR']:
+        with pytest.raises(RebalError, match='SAFE_ASSET CONFLICT'):
+            resolve_safe_asset({'SAFE_ASSET': sym})
+
+
+def test_resolve_safe_asset_none_treated_as_default():
+    assert resolve_safe_asset({'SAFE_ASSET': None}) == '_CASH'
+
+
+def test_resolve_safe_asset_empty_string_treated_as_default():
+    assert resolve_safe_asset({'SAFE_ASSET': ''}) == '_CASH'
+
+
+# --- SAFE_ASSET integration tests ---
+
+
+def _make_safe_asset_fixtures(tmp_path, safe_asset='KISS', kiss_alloc_pct=10):
+    """Create fixture files for SAFE_ASSET integration tests.
+
+    Portfolio: IBIT $45000, KISS $5000, SPAXX** $50000  (total $100k)
+    Alloc: IBIT 90%, KISS <kiss_alloc_pct>%  (must sum to 100)
+    Pct_of_max: Bitcoin 50%, Kiss 100%
+    Cash for bills: $10,000, tax: $0
+    Investable = $100k - $10k = $90k
+    """
+    ibit_pct = 100 - kiss_alloc_pct
+    alloc = tmp_path / 'alloc.test.csv'
+    alloc.write_text(
+        f'Asset_Type,Ticker,Max_Allocation_Pct\n'
+        f'Bitcoin,IBIT,{ibit_pct}\n'
+        f'Kiss,KISS,{kiss_alloc_pct}\n',
+        encoding='utf-8',
+    )
+    pct = tmp_path / 'pct_of_max_alloc.csv'
+    pct.write_text(
+        'Asset_Type,Pct_of_Max\n'
+        'Bitcoin,50\n'
+        'Kiss,100\n',
+        encoding='utf-8',
+    )
+    positions = tmp_path / 'Portfolio_Positions_test.csv'
+    positions.write_text(
+        'Account Name,Symbol,Current Value\n'
+        'Test,IBIT,"$45,000.00"\n'
+        'Test,KISS,"$5,000.00"\n'
+        'Test,SPAXX**,"$50,000.00"\n',
+        encoding='utf-8',
+    )
+    settings = tmp_path / 'settings.json'
+    import json
+    settings.write_text(json.dumps({
+        'default_portfolio': 'test',
+        'portfolios': {
+            'test': {
+                'display_name': 'Test',
+                'ACCOUNT_FILTER': {'column': 'Account Name', 'value': 'Test'},
+                'FILE_PATTERN': 'Portfolio_Positions_test.csv',
+                'SAFE_ASSET': safe_asset,
+                'CASH_FOR_BILLS_IN_USD': 10_000,
+                'TAX_OWED_IN_USD': 0,
+            },
+        },
+    }), encoding='utf-8')
+    return settings
+
+
+def test_safe_asset_kiss_residual_flows_to_kiss(tmp_path):
+    """With SAFE_ASSET=KISS: residual goes to KISS, _CASH mirrors all trades."""
+    settings = _make_safe_asset_fixtures(tmp_path, safe_asset='KISS', kiss_alloc_pct=10)
+    full_config, portfolio_config = load_portfolio_config(
+        str(settings), cli_portfolio_key='test',
+    )
+    result = run_rebalance(
+        export_path=str(tmp_path / 'Portfolio_Positions_test.csv'),
+        targets_file=str(tmp_path / 'alloc.test.csv'),
+        pct_of_max_file=str(tmp_path / 'pct_of_max_alloc.csv'),
+        full_config=full_config,
+        portfolio_config=portfolio_config,
+    )
+
+    assert result.safe_asset_ticker == 'KISS'
+
+    # Investable = 100k - 10k = 90k
+    # IBIT: 90% max * 50% pct_of_max = 45% of 90k = $40,500. Has $45k. Sell $4,500.
+    # KISS: 10% max * 100% pct_of_max = 10% of 90k = $9,000 (explicit).
+    # Residual = 100% - 45% - 10% = 45% of 90k = $40,500.
+    # KISS final target = $9,000 + $40,500 = $49,500. Has $5k. Trade = +$44,500.
+    # _CASH mirror = -(IBIT trade + KISS trade) = -(-4500 + 44500) = -$40,000.
+    # Cash pool after: $50k - $40k = $10k = cash reserve. ✓
+
+    all_trades = pd.concat([result.trades_sell, result.trades_buy], ignore_index=True)
+    net = all_trades['Trade_Amount_USD'].sum()
+    assert abs(net) < 0.02, f'trades do not net to zero: {net}'
+
+    # KISS should not appear in both buy and sell
+    sell_tickers = set(result.trades_sell['Ticker'])
+    buy_tickers = set(result.trades_buy['Ticker'])
+    assert not (sell_tickers & buy_tickers & {'KISS'}), \
+        'KISS should not appear in both buy and sell tables'
+
+    # Verify KISS trade amount
+    kiss_trades = all_trades[all_trades['Ticker'] == 'KISS']
+    assert len(kiss_trades) == 1
+    kiss_trade = float(kiss_trades['Trade_Amount_USD'].iloc[0])
+    assert kiss_trade == pytest.approx(44_500.0, abs=1.0)
+
+    # _CASH is the mirror (sell side: gives cash to buy KISS)
+    cash_trades = all_trades[all_trades['Ticker'] == '_CASH']
+    assert len(cash_trades) == 1
+    cash_trade = float(cash_trades['Trade_Amount_USD'].iloc[0])
+    assert cash_trade == pytest.approx(-40_000.0, abs=1.0)
+
+
+def test_safe_asset_default_cash_backward_compatible():
+    """With no SAFE_ASSET setting, behavior matches old INVESTED_CASH."""
+    full_config, portfolio_config = _load_fixture_config()
+    result = run_rebalance(
+        export_path=fixture_path('Portfolio_Positions_test.csv'),
+        targets_file=fixture_path('alloc.test.csv'),
+        pct_of_max_file=fixture_path('pct_of_max_alloc.csv'),
+        full_config=full_config,
+        portfolio_config=portfolio_config,
+    )
+    assert result.safe_asset_ticker == '_CASH'
+    # Fixture: AAA 60% + BBB 40% = 100%, no CASH row.
+    # AAA sells, BBB buys, they offset, so _CASH trade is ~0.
+    all_trades = pd.concat([result.trades_sell, result.trades_buy], ignore_index=True)
+    net = all_trades['Trade_Amount_USD'].sum()
+    assert abs(net) < 0.02
+    # Trade amounts should match the golden expectations
+    assert result.cash_reserve_usd == 10_000.0
+    assert result.total_portfolio_value == 100_000.0
+
+
+def test_safe_asset_kiss_trade_netting(tmp_path):
+    """KISS gets a single netted trade, not separate alloc + residual."""
+    settings = _make_safe_asset_fixtures(tmp_path, safe_asset='KISS', kiss_alloc_pct=10)
+    full_config, portfolio_config = load_portfolio_config(
+        str(settings), cli_portfolio_key='test',
+    )
+    result = run_rebalance(
+        export_path=str(tmp_path / 'Portfolio_Positions_test.csv'),
+        targets_file=str(tmp_path / 'alloc.test.csv'),
+        pct_of_max_file=str(tmp_path / 'pct_of_max_alloc.csv'),
+        full_config=full_config,
+        portfolio_config=portfolio_config,
+    )
+    all_trades = pd.concat([result.trades_sell, result.trades_buy], ignore_index=True)
+    kiss_rows = all_trades[all_trades['Ticker'] == 'KISS']
+    assert len(kiss_rows) == 1, 'KISS should appear exactly once (netted)'
+
+
+def test_safe_asset_appears_last_in_trade_table(tmp_path):
+    """Safe asset and _CASH appear last in their respective trade tables."""
+    settings = _make_safe_asset_fixtures(tmp_path, safe_asset='KISS', kiss_alloc_pct=10)
+    full_config, portfolio_config = load_portfolio_config(
+        str(settings), cli_portfolio_key='test',
+    )
+    result = run_rebalance(
+        export_path=str(tmp_path / 'Portfolio_Positions_test.csv'),
+        targets_file=str(tmp_path / 'alloc.test.csv'),
+        pct_of_max_file=str(tmp_path / 'pct_of_max_alloc.csv'),
+        full_config=full_config,
+        portfolio_config=portfolio_config,
+    )
+    # In the sell table, KISS and/or _CASH should be last
+    if not result.trades_sell.empty:
+        last_sell_ticker = result.trades_sell['Ticker'].iloc[-1]
+        assert last_sell_ticker in {'KISS', '_CASH'}
+    if not result.trades_buy.empty:
+        last_buy_ticker = result.trades_buy['Ticker'].iloc[-1]
+        assert last_buy_ticker in {'KISS', '_CASH'}
+
+
+def test_safe_asset_conflict_with_cash_symbol():
+    """SAFE_ASSET that is also a cash symbol should raise an error in run_rebalance."""
+    full_config, portfolio_config = _load_fixture_config()
+    full_config = dict(full_config)
+    full_config['portfolios'] = dict(full_config['portfolios'])
+    full_config['portfolios']['test'] = dict(full_config['portfolios']['test'])
+    full_config['portfolios']['test']['SAFE_ASSET'] = 'SHV'
+
+    with pytest.raises(RebalError, match='SAFE_ASSET CONFLICT'):
+        run_rebalance(
+            export_path=fixture_path('Portfolio_Positions_test.csv'),
+            targets_file=fixture_path('alloc.test.csv'),
+            pct_of_max_file=fixture_path('pct_of_max_alloc.csv'),
+            full_config=full_config,
+            portfolio_config=portfolio_config,
+        )

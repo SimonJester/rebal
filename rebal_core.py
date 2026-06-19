@@ -17,12 +17,13 @@ DEFAULT_TAX_OWED_USD = 0.0
 FIDELITY_CASH_SYMBOLS = [
     'SPAXX**', 'SHV', 'USFR', 'BIL', 'SGOV', 'Pending activity', 'USD***',
 ]
-INVESTED_CASH_TICKER = 'INVESTED_CASH'
+CASH_META_TICKER = '_CASH'
+DEFAULT_SAFE_ASSET = '_CASH'
 
 NON_RESERVE_KEYS = {
     'ACCOUNT_FILTER', 'FILE_PATTERN', 'display_name', 'portfolio_key',
     'portfolios', 'default_portfolio', 'TARGETS_FILE',
-    'CASH_FOR_BILLS_SOURCE',
+    'CASH_FOR_BILLS_SOURCE', 'SAFE_ASSET',
 }
 
 REQUIRED_ALLOC_COLS = ['Asset_Type', 'Ticker', 'Max_Allocation_Pct']
@@ -34,6 +35,9 @@ SPECIAL_RESERVE_TICKERS = [
 TICKERS_TO_EXCLUDE_INVESTED = [
     'CASH', 'CASH_RESERVE_USD', 'CASH_FOR_BILLS_IN_USD', 'TAX_OWED_IN_USD',
 ]
+
+# Legacy alias for external code that imported the old name
+INVESTED_CASH_TICKER = CASH_META_TICKER
 IGNORE_PORTFOLIO_TICKERS = ['LTCG', 'STCG', 'INCOME']
 
 
@@ -87,6 +91,7 @@ class RebalanceResult:
     display_name: str
     export_path: str
     account_filter: AccountFilter | None
+    safe_asset_ticker: str
     df_target_summary: pd.DataFrame
     cash_for_bills_usd: float
     cash_for_bills_source: dict | None
@@ -384,6 +389,28 @@ def resolve_cash_for_bills(
     return (parsed if parsed is not None else 0.0), None
 
 
+def resolve_safe_asset(
+    reserve_settings: dict[str, Any],
+) -> str:
+    """Return the SAFE_ASSET ticker from settings, defaulting to _CASH."""
+    raw = reserve_settings.get('SAFE_ASSET', DEFAULT_SAFE_ASSET)
+    if raw is None:
+        return DEFAULT_SAFE_ASSET
+    ticker = str(raw).strip().upper()
+    if not ticker:
+        return DEFAULT_SAFE_ASSET
+    if ticker != CASH_META_TICKER:
+        cash_upper = [s.upper() for s in FIDELITY_CASH_SYMBOLS]
+        if ticker in cash_upper:
+            raise RebalError(
+                f"\n*** ERROR: SAFE_ASSET CONFLICT ***\n"
+                f"SAFE_ASSET '{ticker}' is listed in FIDELITY_CASH_SYMBOLS.\n"
+                f"A cash-pool symbol cannot also be the safe asset.\n"
+                f"Remove it from FIDELITY_CASH_SYMBOLS or choose a different SAFE_ASSET."
+            )
+    return ticker
+
+
 def append_reserve_rows(
     df_targets: pd.DataFrame,
     full_config: dict[str, Any],
@@ -506,30 +533,41 @@ def validate_cash_and_invested_alloc(df_targets: pd.DataFrame) -> None:
         )
 
 
-def sort_trades_by_off_ratio(df: pd.DataFrame) -> pd.DataFrame:
+def sort_trades_by_off_ratio(
+    df: pd.DataFrame,
+    last_tickers: set[str] | None = None,
+) -> pd.DataFrame:
+    """Sort trades: zero-target first, then by Off_Ratio, special tickers last.
+
+    *last_tickers* is a set of tickers that should appear at the end
+    (e.g. CASH_META_TICKER and the safe-asset ticker).
+    """
     if df.empty:
         return df.copy()
-    out = df.copy()
-    out['is_invested_cash'] = out['Ticker'] == INVESTED_CASH_TICKER
-    cash_rows = out[out['is_invested_cash']].copy()
-    non_cash = out[~out['is_invested_cash']].copy()
+    if last_tickers is None:
+        last_tickers = {CASH_META_TICKER}
 
-    tier1 = non_cash[
-        (non_cash['Target_Allocation'] == 0) & (non_cash['Off_Pct'] != 0)
+    out = df.copy()
+    out['_is_last'] = out['Ticker'].isin(last_tickers)
+    last_rows = out[out['_is_last']].copy()
+    regular = out[~out['_is_last']].copy()
+
+    tier1 = regular[
+        (regular['Target_Allocation'] == 0) & (regular['Off_Pct'] != 0)
     ].sort_values('Off_Pct', ascending=False)
-    tier2 = non_cash[non_cash['Target_Allocation'] != 0].sort_values(
+    tier2 = regular[regular['Target_Allocation'] != 0].sort_values(
         'Off_Ratio', ascending=False,
     )
-    tier3 = non_cash[
-        (non_cash['Target_Allocation'] == 0) & (non_cash['Off_Pct'] == 0)
+    tier3 = regular[
+        (regular['Target_Allocation'] == 0) & (regular['Off_Pct'] == 0)
     ].sort_values('Ticker', ascending=True)
 
-    sorted_non_cash = pd.concat([tier1, tier2, tier3], ignore_index=True)
-    if not cash_rows.empty:
-        sorted_df = pd.concat([sorted_non_cash, cash_rows], ignore_index=True)
+    sorted_regular = pd.concat([tier1, tier2, tier3], ignore_index=True)
+    if not last_rows.empty:
+        sorted_df = pd.concat([sorted_regular, last_rows], ignore_index=True)
     else:
-        sorted_df = sorted_non_cash
-    return sorted_df.drop(columns=['is_invested_cash'], errors='ignore')
+        sorted_df = sorted_regular
+    return sorted_df.drop(columns=['_is_last'], errors='ignore')
 
 
 def run_rebalance(
@@ -560,6 +598,7 @@ def run_rebalance(
     # --- Resolve cash reserve directly from settings (not dataframe) ---
     reserve_settings = _get_reserve_settings(full_config, portfolio_config)
     cash_for_bills, cash_for_bills_source = resolve_cash_for_bills(reserve_settings)
+    safe_asset_ticker = resolve_safe_asset(reserve_settings)
 
     tax_raw = reserve_settings.get('TAX_OWED_IN_USD', 0)
     tax = _try_parse_float(tax_raw)
@@ -583,7 +622,7 @@ def run_rebalance(
         inplace=True,
     )
     df_target_summary['Ticker_Target'] = df_target_summary['Ticker_Target'].replace(
-        {'CASH': INVESTED_CASH_TICKER},
+        {'CASH': CASH_META_TICKER},
     )
 
     non_cash_sum = df_targets[
@@ -618,14 +657,15 @@ def run_rebalance(
 
     total_investable = total_portfolio_value - cash_reserve_usd
 
+    # Build the rebalancing universe: invested assets + _CASH row
     cash_row_temp = pd.DataFrame([
-        {'Ticker': INVESTED_CASH_TICKER, 'Current_Value': current_cash_value},
+        {'Ticker': CASH_META_TICKER, 'Current_Value': current_cash_value},
     ])
     df_portfolio_rebal = pd.concat([df_invested_assets, cash_row_temp], ignore_index=True)
 
     df_targets_alloc = df_targets_alloc.copy()
     df_targets_alloc['Ticker'] = df_targets_alloc['Ticker'].replace(
-        {'CASH': INVESTED_CASH_TICKER},
+        {'CASH': CASH_META_TICKER},
     )
 
     df_rebalance = pd.merge(
@@ -646,37 +686,112 @@ def run_rebalance(
         df_rebalance['Target_Value'] - df_rebalance['Current_Value']
     )
 
-    df_trades = df_rebalance[df_rebalance['Ticker'] != INVESTED_CASH_TICKER].copy()
-    df_trades = df_trades[df_trades['Trade_Amount_USD'].abs() > 0.01]
+    # --- Determine which tickers are "special" (last in trade tables) ---
+    last_tickers = {CASH_META_TICKER}
+    if safe_asset_ticker != CASH_META_TICKER:
+        last_tickers.add(safe_asset_ticker)
 
-    net_non_cash = df_trades['Trade_Amount_USD'].sum()
-    cash_pool_trade = -net_non_cash
-    if abs(cash_pool_trade) > 0.01:
-        cash_row_data = df_rebalance[
-            df_rebalance['Ticker'] == INVESTED_CASH_TICKER
-        ].iloc[0]
-        cash_pool_row = pd.DataFrame([{
-            'Ticker': INVESTED_CASH_TICKER,
-            'Trade_Amount_USD': cash_pool_trade,
-            'Target_Allocation': cash_row_data['Target_Allocation'],
-            'Current_Pct': cash_row_data['Current_Pct'],
-        }])
-        df_trades = pd.concat([df_trades, cash_pool_row], ignore_index=True)
+    # --- Build trades, handling safe-asset residual & cash mirror ---
+    if safe_asset_ticker == CASH_META_TICKER:
+        # Classic mode: _CASH absorbs residual AND mirrors trades.
+        # Exclude _CASH from normal trades; add it as the mirror row.
+        df_trades = df_rebalance[df_rebalance['Ticker'] != CASH_META_TICKER].copy()
+        df_trades = df_trades[df_trades['Trade_Amount_USD'].abs() > 0.01]
 
+        net_non_cash = df_trades['Trade_Amount_USD'].sum()
+        cash_pool_trade = -net_non_cash
+        if abs(cash_pool_trade) > 0.01:
+            cash_row_data = df_rebalance[
+                df_rebalance['Ticker'] == CASH_META_TICKER
+            ].iloc[0]
+            cash_pool_row = pd.DataFrame([{
+                'Ticker': CASH_META_TICKER,
+                'Trade_Amount_USD': cash_pool_trade,
+                'Target_Allocation': cash_row_data['Target_Allocation'],
+                'Current_Pct': cash_row_data['Current_Pct'],
+            }])
+            df_trades = pd.concat([df_trades, cash_pool_row], ignore_index=True)
+    else:
+        # SAFE_ASSET is a real ticker (e.g. KISS).
+        # That ticker gets its explicit allocation + residual, netted.
+        # _CASH is the pure mirror of all non-cash trades.
+
+        # 1) Compute residual %: whatever target allocation isn't
+        #    claimed by explicit tickers goes to the safe asset.
+        #    This is the _CASH row's Target_Allocation (if it exists),
+        #    or equivalently 100% minus the sum of all non-CASH targets.
+        explicit_tickers = {CASH_META_TICKER}
+        non_cash_target_sum = df_rebalance[
+            ~df_rebalance['Ticker'].isin(explicit_tickers)
+        ]['Target_Allocation'].sum()
+        residual_pct = 100.0 - non_cash_target_sum
+        residual_value = (residual_pct / 100.0) * total_investable
+
+        # 2) Compute the safe asset's explicit allocation
+        sa_rows = df_rebalance[df_rebalance['Ticker'] == safe_asset_ticker]
+        if sa_rows.empty:
+            sa_explicit_target_val = 0.0
+            sa_current_val = 0.0
+            sa_target_alloc = 0.0
+            sa_current_pct = 0.0
+        else:
+            sa_row = sa_rows.iloc[0]
+            sa_explicit_target_val = float(sa_row['Target_Value'])
+            sa_current_val = float(sa_row['Current_Value'])
+            sa_target_alloc = float(sa_row['Target_Allocation'])
+            sa_current_pct = float(sa_row['Current_Pct'])
+
+        # 3) Safe asset final target = explicit + residual
+        sa_final_target_val = sa_explicit_target_val + residual_value
+        sa_final_target_pct = sa_target_alloc + residual_pct
+        sa_net_trade = sa_final_target_val - sa_current_val
+
+        # 4) Build trades excluding both _CASH and SAFE_ASSET
+        excluded = {CASH_META_TICKER, safe_asset_ticker}
+        df_trades = df_rebalance[~df_rebalance['Ticker'].isin(excluded)].copy()
+        df_trades = df_trades[df_trades['Trade_Amount_USD'].abs() > 0.01]
+
+        # 5) Add safe asset row (netted) if non-trivial
+        if abs(sa_net_trade) > 0.01:
+            sa_trade_row = pd.DataFrame([{
+                'Ticker': safe_asset_ticker,
+                'Trade_Amount_USD': sa_net_trade,
+                'Target_Allocation': sa_final_target_pct,
+                'Current_Pct': sa_current_pct,
+            }])
+            df_trades = pd.concat([df_trades, sa_trade_row], ignore_index=True)
+
+        # 6) _CASH mirror: negative sum of all other trades
+        net_all_other = df_trades['Trade_Amount_USD'].sum()
+        cash_mirror_trade = -net_all_other
+        if abs(cash_mirror_trade) > 0.01:
+            cash_row_data = df_rebalance[
+                df_rebalance['Ticker'] == CASH_META_TICKER
+            ]
+            c_pct = float(cash_row_data.iloc[0]['Current_Pct']) if not cash_row_data.empty else 0.0
+            cash_mirror_row = pd.DataFrame([{
+                'Ticker': CASH_META_TICKER,
+                'Trade_Amount_USD': cash_mirror_trade,
+                'Target_Allocation': 0.0,
+                'Current_Pct': c_pct,
+            }])
+            df_trades = pd.concat([df_trades, cash_mirror_row], ignore_index=True)
+
+    # --- Off-pct / off-ratio ---
     df_trades['Off_Pct'] = abs(
         df_trades['Target_Allocation'] - df_trades['Current_Pct'],
     )
-    if INVESTED_CASH_TICKER in df_trades['Ticker'].values:
-        df_non_cash = df_trades[df_trades['Ticker'] != INVESTED_CASH_TICKER]
-        buys_off = df_non_cash.loc[
-            df_non_cash['Trade_Amount_USD'] > 0, 'Off_Pct',
+    if CASH_META_TICKER in df_trades['Ticker'].values:
+        df_non_special = df_trades[~df_trades['Ticker'].isin(last_tickers)]
+        buys_off = df_non_special.loc[
+            df_non_special['Trade_Amount_USD'] > 0, 'Off_Pct',
         ].sum()
-        sells_off = df_non_cash.loc[
-            df_non_cash['Trade_Amount_USD'] < 0, 'Off_Pct',
+        sells_off = df_non_special.loc[
+            df_non_special['Trade_Amount_USD'] < 0, 'Off_Pct',
         ].sum()
         net_off = abs(buys_off - sells_off)
         df_trades.loc[
-            df_trades['Ticker'] == INVESTED_CASH_TICKER, 'Off_Pct',
+            df_trades['Ticker'] == CASH_META_TICKER, 'Off_Pct',
         ] = net_off
 
     df_trades['Off_Ratio'] = np.where(
@@ -696,13 +811,15 @@ def run_rebalance(
 
     trades_sell = sort_trades_by_off_ratio(
         df_trades[df_trades['Trade_Amount_USD'] < 0].copy(),
+        last_tickers=last_tickers,
     )
     trades_buy = sort_trades_by_off_ratio(
         df_trades[df_trades['Trade_Amount_USD'] > 0].copy(),
+        last_tickers=last_tickers,
     )
 
     df_current = df_rebalance[['Ticker', 'Current_Value']].copy()
-    df_current['is_cash'] = df_current['Ticker'] == INVESTED_CASH_TICKER
+    df_current['is_cash'] = df_current['Ticker'] == CASH_META_TICKER
     df_current = df_current.sort_values(
         by=['is_cash', 'Ticker'], ascending=[True, True],
     ).drop(columns=['is_cash'])
@@ -715,6 +832,7 @@ def run_rebalance(
         display_name=display_name,
         export_path=export_path,
         account_filter=account_filter,
+        safe_asset_ticker=safe_asset_ticker,
         df_target_summary=df_target_summary,
         cash_for_bills_usd=cash_for_bills,
         cash_for_bills_source=cash_for_bills_source,

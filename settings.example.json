@@ -8,6 +8,8 @@
         "value": "Your Account Name As Shown In Export"
       },
       "FILE_PATTERN": "Portfolio_Positions_*.csv",
+      "_comment_SAFE_ASSET": "Ticker that absorbs residual allocation. _CASH = consolidated cash pool (SPAXX**, SHV, etc). A real ticker like KISS gets explicit allocation + residual, netted into one trade.",
+      "SAFE_ASSET": "_CASH",
       "CASH_FOR_BILLS_IN_USD": "$0",
       "CASH_FOR_BILLS_SOURCE": {
         "_comment_CASH_FOR_BILLS": "When CASH_FOR_BILLS_SOURCE is present with both keys, its product overrides CASH_FOR_BILLS_IN_USD",

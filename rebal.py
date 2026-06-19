@@ -8,7 +8,7 @@ import sys
 import pandas as pd
 
 from rebal_core import (
-    INVESTED_CASH_TICKER,
+    CASH_META_TICKER,
     RebalError,
     RebalanceResult,
     find_export_file,
@@ -173,11 +173,7 @@ def _print_trade_table(trades, side: str, ticker_w_trade: int, *, is_sell: bool)
 
     if not trades.empty:
         for _, row in trades.iterrows():
-            ticker_name = (
-                INVESTED_CASH_TICKER
-                if row['Ticker'] == INVESTED_CASH_TICKER
-                else row['Ticker']
-            )
+            ticker_name = row['Ticker']
             usd_amount = abs(row['Trade_Amount_USD'])
             off_ratio_str = (
                 "N/A" if row['Target_Allocation'] == 0
