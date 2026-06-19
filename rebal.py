@@ -34,13 +34,14 @@ def get_max_currency_width(values):
     return max(max_len, 4)
 
 
-def print_rebalance_report(result: RebalanceResult) -> None:
-    if result.default_messages:
-        print("\n--- Cash Reserve Defaults Used ---")
-        for msg in result.default_messages:
-            print(msg)
-        print("----------------------------------\n")
+def _format_source_float(raw: object) -> float:
+    """Parse a raw source value to float for display."""
+    if isinstance(raw, str):
+        return float(raw.strip().replace('$', '').replace(',', ''))
+    return float(raw)
 
+
+def print_rebalance_report(result: RebalanceResult) -> None:
     print(f"\n=== REBALANCE - {result.display_name} ===")
 
     if not result.df_target_summary.empty:
@@ -69,16 +70,13 @@ def print_rebalance_report(result: RebalanceResult) -> None:
         print(separator)
         print()
 
-    cash_management_data = [
-        ("Months of Bills to Set Aside as Cash", result.cash_for_bills_months, False),
-        ("Average Bills Per Month", result.bills_per_month_usd, True),
-        ("Estimated Taxes Owed", result.tax_owed_usd, True),
-        ("Cash for Bills & Taxes (Not Invested)", result.cash_reserve_usd, True),
+    # --- Cash management table ---
+    currency_values = [
+        result.cash_for_bills_usd,
+        result.tax_owed_usd,
+        result.cash_reserve_usd,
     ]
-
-    currency_values = [d[1] for d in cash_management_data if d[2]]
-    non_currency_values = [d[1] for d in cash_management_data if not d[2]]
-    num_align_w_data = get_max_currency_width(currency_values + non_currency_values)
+    num_align_w_data = get_max_currency_width(currency_values)
     item_w = 40
     header_text = 'Value'
     value_col_w = max(len(header_text), num_align_w_data + 2)
@@ -88,10 +86,30 @@ def print_rebalance_report(result: RebalanceResult) -> None:
     separator = f"{'-' * item_w} {'-' * value_col_w}"
     print(header)
     print(separator)
-    for item, value, is_currency in cash_management_data:
-        num_str = f"{value:>{num_align_w},.2f}"
-        formatted = f"$ {num_str}" if is_currency else f"  {num_str}"
-        print(f"{item:<{item_w}} {formatted:>{value_col_w}}")
+
+    # Cash for Bills line (with optional source annotation)
+    bills_num = f"{result.cash_for_bills_usd:>{num_align_w},.2f}"
+    bills_line = f"{'Cash for Bills (Not Invested)':<{item_w}} {f'$ {bills_num}':>{value_col_w}}"
+    if result.cash_for_bills_source:
+        bills_v = _format_source_float(
+            result.cash_for_bills_source.get('BILLS_PER_MONTH_IN_USD', 0),
+        )
+        months_v = _format_source_float(
+            result.cash_for_bills_source.get('CASH_FOR_BILLS_IN_MONTHS', 0),
+        )
+        bills_line += f"  (${bills_v:,.2f}/mo \u00d7 {months_v:g} mo)"
+    print(bills_line)
+
+    # Estimated Taxes Owed
+    tax_num = f"{result.tax_owed_usd:>{num_align_w},.2f}"
+    print(f"{'Estimated Taxes Owed':<{item_w}} {f'$ {tax_num}':>{value_col_w}}")
+
+    # Cash for Bills & Taxes total
+    total_num = f"{result.cash_reserve_usd:>{num_align_w},.2f}"
+    print(
+        f"{'Cash for Bills & Taxes (Not Invested)':<{item_w}} "
+        f"{f'$ {total_num}':>{value_col_w}}"
+    )
     print(separator)
     print()
 
@@ -100,7 +118,7 @@ def print_rebalance_report(result: RebalanceResult) -> None:
         if result.account_filter:
             print(result.account_filter.describe())
         else:
-            print("No ACCOUNT_FILTER specified → using ALL rows from export.")
+            print("No ACCOUNT_FILTER specified \u2192 using ALL rows from export.")
         print()
 
         header_text = 'Current_USD'

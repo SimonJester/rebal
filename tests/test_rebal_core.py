@@ -13,6 +13,7 @@ from rebal_core import (
     load_portfolio_config,
     load_targets_raw,
     parse_account_filter,
+    resolve_cash_for_bills,
     resolve_data_path,
     resolve_positions_path,
     run_rebalance,
@@ -166,3 +167,102 @@ def test_all_repo_alloc_files_sum_to_100():
         df = pd.read_csv(path)
         total = df['Max_Allocation_Pct'].sum()
         assert abs(total - 100.0) < 1e-6, f"{path.name} sums to {total}"
+
+
+# --- Cash resolution tests ---
+
+
+def test_resolve_cash_source_overrides_manual():
+    """CASH_FOR_BILLS_SOURCE wins when both keys are present and valid."""
+    settings = {
+        'CASH_FOR_BILLS_IN_USD': 999,
+        'CASH_FOR_BILLS_SOURCE': {
+            'BILLS_PER_MONTH_IN_USD': 3000,
+            'CASH_FOR_BILLS_IN_MONTHS': 4,
+        },
+    }
+    usd, source = resolve_cash_for_bills(settings)
+    assert usd == 12_000.0
+    assert source == settings['CASH_FOR_BILLS_SOURCE']
+
+
+def test_resolve_cash_manual_when_no_source():
+    """Use CASH_FOR_BILLS_IN_USD when no source is present."""
+    settings = {'CASH_FOR_BILLS_IN_USD': 7500}
+    usd, source = resolve_cash_for_bills(settings)
+    assert usd == 7500.0
+    assert source is None
+
+
+def test_resolve_cash_defaults_to_zero_when_both_missing():
+    """Default to 0 when neither source nor manual value is present."""
+    usd, source = resolve_cash_for_bills({})
+    assert usd == 0.0
+    assert source is None
+
+
+def test_resolve_cash_partial_source_falls_back_to_manual():
+    """Partial source (missing one key) falls back to manual."""
+    settings = {
+        'CASH_FOR_BILLS_IN_USD': 5000,
+        'CASH_FOR_BILLS_SOURCE': {
+            'BILLS_PER_MONTH_IN_USD': 2500,
+        },
+    }
+    usd, source = resolve_cash_for_bills(settings)
+    assert usd == 5000.0
+    assert source is None
+
+
+def test_resolve_cash_source_with_string_values():
+    """Source values can be dollar-formatted strings."""
+    settings = {
+        'CASH_FOR_BILLS_SOURCE': {
+            'BILLS_PER_MONTH_IN_USD': '$2,000',
+            'CASH_FOR_BILLS_IN_MONTHS': '3',
+        },
+    }
+    usd, source = resolve_cash_for_bills(settings)
+    assert usd == 6_000.0
+    assert source is not None
+
+
+def test_run_rebalance_manual_cash_no_source():
+    """run_rebalance works with manual CASH_FOR_BILLS_IN_USD (no source)."""
+    full_config, portfolio_config = _load_fixture_config()
+    full_config = dict(full_config)
+    full_config['portfolios'] = dict(full_config['portfolios'])
+    full_config['portfolios']['test'] = dict(full_config['portfolios']['test'])
+    full_config['portfolios']['test'].pop('CASH_FOR_BILLS_SOURCE', None)
+    full_config['portfolios']['test']['CASH_FOR_BILLS_IN_USD'] = 10_000
+
+    result = run_rebalance(
+        export_path=fixture_path('Portfolio_Positions_test.csv'),
+        targets_file=fixture_path('alloc.test.csv'),
+        pct_of_max_file=fixture_path('pct_of_max_alloc.csv'),
+        full_config=full_config,
+        portfolio_config=portfolio_config,
+    )
+    assert result.cash_for_bills_usd == 10_000.0
+    assert result.cash_for_bills_source is None
+    assert result.cash_reserve_usd == 10_000.0
+
+
+def test_run_rebalance_zero_cash_when_both_missing():
+    """run_rebalance defaults to 0 cash for bills when keys are absent."""
+    full_config, portfolio_config = _load_fixture_config()
+    full_config = dict(full_config)
+    full_config['portfolios'] = dict(full_config['portfolios'])
+    full_config['portfolios']['test'] = dict(full_config['portfolios']['test'])
+    full_config['portfolios']['test'].pop('CASH_FOR_BILLS_SOURCE', None)
+    full_config['portfolios']['test'].pop('CASH_FOR_BILLS_IN_USD', None)
+
+    result = run_rebalance(
+        export_path=fixture_path('Portfolio_Positions_test.csv'),
+        targets_file=fixture_path('alloc.test.csv'),
+        pct_of_max_file=fixture_path('pct_of_max_alloc.csv'),
+        full_config=full_config,
+        portfolio_config=portfolio_config,
+    )
+    assert result.cash_for_bills_usd == 0.0
+    assert result.cash_reserve_usd == 0.0

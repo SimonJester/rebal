@@ -8,8 +8,12 @@
         "value": "Test Account"
       },
       "FILE_PATTERN": "Portfolio_Positions_test.csv",
-      "BILLS_PER_MONTH_IN_USD": 5000,
-      "CASH_FOR_BILLS_IN_MONTHS": 2,
+      "CASH_FOR_BILLS_IN_USD": 0,
+      "CASH_FOR_BILLS_SOURCE": {
+        "BILLS_PER_MONTH_IN_USD": 5000,
+        "CASH_FOR_BILLS_IN_MONTHS": 2
+      },
+      "_comment_CASH_FOR_BILLS": "When CASH_FOR_BILLS_SOURCE is present with both keys, its product overrides CASH_FOR_BILLS_IN_USD",
       "TAX_OWED_IN_USD": 0
     }
   }

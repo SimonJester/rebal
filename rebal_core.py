@@ -12,8 +12,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-DEFAULT_BILLS_USD = 10000.0
-DEFAULT_BILLS_MONTHS = 3.0
 DEFAULT_TAX_OWED_USD = 0.0
 
 FIDELITY_CASH_SYMBOLS = [
@@ -24,21 +22,17 @@ INVESTED_CASH_TICKER = 'INVESTED_CASH'
 NON_RESERVE_KEYS = {
     'ACCOUNT_FILTER', 'FILE_PATTERN', 'display_name', 'portfolio_key',
     'portfolios', 'default_portfolio', 'TARGETS_FILE',
+    'CASH_FOR_BILLS_SOURCE', '_comment_CASH_FOR_BILLS',
 }
 
 REQUIRED_ALLOC_COLS = ['Asset_Type', 'Ticker', 'Max_Allocation_Pct']
 REQUIRED_PCT_COLS = ['Asset_Type', 'Pct_of_Max']
-REQUIRED_RESERVE_KEYS = [
-    'BILLS_PER_MONTH_IN_USD', 'CASH_FOR_BILLS_IN_MONTHS', 'TAX_OWED_IN_USD',
-]
 
 SPECIAL_RESERVE_TICKERS = [
-    'CASH_RESERVE_USD', 'BILLS_PER_MONTH_IN_USD',
-    'CASH_FOR_BILLS_IN_MONTHS', 'TAX_OWED_IN_USD',
+    'CASH_RESERVE_USD', 'CASH_FOR_BILLS_IN_USD', 'TAX_OWED_IN_USD',
 ]
 TICKERS_TO_EXCLUDE_INVESTED = [
-    'CASH', 'CASH_RESERVE_USD', 'BILLS_PER_MONTH_IN_USD',
-    'CASH_FOR_BILLS_IN_MONTHS', 'TAX_OWED_IN_USD',
+    'CASH', 'CASH_RESERVE_USD', 'CASH_FOR_BILLS_IN_USD', 'TAX_OWED_IN_USD',
 ]
 IGNORE_PORTFOLIO_TICKERS = ['LTCG', 'STCG', 'INCOME']
 
@@ -93,10 +87,9 @@ class RebalanceResult:
     display_name: str
     export_path: str
     account_filter: AccountFilter | None
-    default_messages: list[str]
     df_target_summary: pd.DataFrame
-    bills_per_month_usd: float
-    cash_for_bills_months: float
+    cash_for_bills_usd: float
+    cash_for_bills_source: dict | None
     tax_owed_usd: float
     cash_reserve_usd: float
     total_portfolio_value: float
@@ -162,7 +155,7 @@ def load_portfolio_config(
             ]
             for k, v in portfolios.items():
                 display = v.get('display_name', k)
-                lines.append(f"  - {k}  →  {display}")
+                lines.append(f"  - {k}  \u2192  {display}")
             lines.append("\nUsage: python rebal.py <portfolio_key>")
             lines.append('       (or set "default_portfolio" in settings.json)')
             raise RebalError('\n'.join(lines))
@@ -342,6 +335,55 @@ def _parse_reserve_value(value: Any, ticker: str, display_name: str) -> float:
         ) from None
 
 
+def _try_parse_float(value: Any) -> float | None:
+    """Try to parse a value as float, returning None on failure."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        try:
+            cleaned = value.strip().replace('$', '').replace(',', '')
+            if not cleaned:
+                return None
+            return float(cleaned)
+        except ValueError:
+            return None
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def _get_reserve_settings(
+    full_config: dict[str, Any],
+    portfolio_config: dict[str, Any],
+) -> dict[str, Any]:
+    """Extract the reserve-settings dict for the active portfolio."""
+    pkey = portfolio_config['portfolio_key']
+    if 'portfolios' in full_config and pkey in full_config['portfolios']:
+        return full_config['portfolios'][pkey]
+    return full_config
+
+
+def resolve_cash_for_bills(
+    reserve_settings: dict[str, Any],
+) -> tuple[float, dict | None]:
+    """Resolve cash-for-bills from source or manual value.
+
+    Returns (cash_for_bills_usd, source_dict_or_None).
+    """
+    source = reserve_settings.get('CASH_FOR_BILLS_SOURCE')
+    if isinstance(source, dict):
+        bills_val = _try_parse_float(source.get('BILLS_PER_MONTH_IN_USD'))
+        months_val = _try_parse_float(source.get('CASH_FOR_BILLS_IN_MONTHS'))
+        if bills_val is not None and months_val is not None:
+            return bills_val * months_val, dict(source)
+
+    # Fall back to manual CASH_FOR_BILLS_IN_USD
+    raw = reserve_settings.get('CASH_FOR_BILLS_IN_USD', 0)
+    parsed = _try_parse_float(raw)
+    return (parsed if parsed is not None else 0.0), None
+
+
 def append_reserve_rows(
     df_targets: pd.DataFrame,
     full_config: dict[str, Any],
@@ -350,20 +392,15 @@ def append_reserve_rows(
     display_name = portfolio_config.get(
         'display_name', portfolio_config['portfolio_key'],
     )
-    pkey = portfolio_config['portfolio_key']
-    if 'portfolios' in full_config and pkey in full_config['portfolios']:
-        reserve_settings = full_config['portfolios'][pkey]
-    else:
-        reserve_settings = full_config
-
-    if not all(k in reserve_settings for k in REQUIRED_RESERVE_KEYS):
-        raise RebalError(
-            f"\n*** ERROR: MISSING REQUIRED KEYS IN PORTFOLIO '{display_name}' ***"
-        )
+    reserve_settings = _get_reserve_settings(full_config, portfolio_config)
 
     reserve_rows = []
     for ticker, value in reserve_settings.items():
         if ticker in NON_RESERVE_KEYS:
+            continue
+        if isinstance(value, dict):
+            continue
+        if ticker.startswith('_'):
             continue
         reserve_rows.append({
             'Asset_Type': 'RESERVE',
@@ -450,26 +487,6 @@ def parse_portfolio_export(
     return df_clean[~df_clean['Ticker'].isin(IGNORE_PORTFOLIO_TICKERS)].copy()
 
 
-def get_reserve_value(
-    df: pd.DataFrame,
-    ticker: str,
-    default_value: float,
-    default_message_format: str,
-) -> tuple[float, str | None]:
-    row = df[df['Ticker'] == ticker]
-    if row.empty:
-        return default_value, (
-            f"Note: '{ticker}' not found. Using default value: {default_message_format}"
-        )
-    value = row['Value'].iloc[0]
-    if pd.isna(value):
-        return default_value, (
-            f"Note: '{ticker}' found but 'Value' is empty/NaN. "
-            f"Using default value: {default_message_format}"
-        )
-    return float(value), None
-
-
 def validate_cash_and_invested_alloc(df_targets: pd.DataFrame) -> None:
     cash_max_row = df_targets[df_targets['Ticker'] == 'CASH']
     if not cash_max_row.empty:
@@ -540,6 +557,21 @@ def run_rebalance(
 
     validate_cash_and_invested_alloc(df_targets)
 
+    # --- Resolve cash reserve directly from settings (not dataframe) ---
+    reserve_settings = _get_reserve_settings(full_config, portfolio_config)
+    cash_for_bills, cash_for_bills_source = resolve_cash_for_bills(reserve_settings)
+
+    tax_raw = reserve_settings.get('TAX_OWED_IN_USD', 0)
+    tax = _try_parse_float(tax_raw)
+    if tax is None:
+        tax = 0.0
+
+    if cash_for_bills < 0 or tax < 0:
+        raise RebalError("\n*** ERROR: NEGATIVE RESERVE VALUES NOT ALLOWED ***")
+
+    cash_reserve_usd = cash_for_bills + tax
+
+    # --- Target allocations ---
     df_targets['Target_Allocation'] = (
         df_targets['Max_Allocation_Pct'] * (df_targets['Pct_of_Max'] / 100.0)
     )
@@ -553,31 +585,6 @@ def run_rebalance(
     df_target_summary['Ticker_Target'] = df_target_summary['Ticker_Target'].replace(
         {'CASH': INVESTED_CASH_TICKER},
     )
-
-    default_messages: list[str] = []
-    bills, msg = get_reserve_value(
-        df_targets, 'BILLS_PER_MONTH_IN_USD', DEFAULT_BILLS_USD,
-        f"${DEFAULT_BILLS_USD:,.2f}",
-    )
-    if msg:
-        default_messages.append(msg)
-    months, msg = get_reserve_value(
-        df_targets, 'CASH_FOR_BILLS_IN_MONTHS', DEFAULT_BILLS_MONTHS,
-        f"{DEFAULT_BILLS_MONTHS:.1f} months",
-    )
-    if msg:
-        default_messages.append(msg)
-    tax, msg = get_reserve_value(
-        df_targets, 'TAX_OWED_IN_USD', DEFAULT_TAX_OWED_USD,
-        f"${DEFAULT_TAX_OWED_USD:,.2f}",
-    )
-    if msg:
-        default_messages.append(msg)
-
-    if bills < 0 or months < 0 or tax < 0:
-        raise RebalError("\n*** ERROR: NEGATIVE RESERVE VALUES NOT ALLOWED ***")
-
-    cash_reserve_usd = (bills * months) + tax
 
     non_cash_sum = df_targets[
         ~df_targets['Ticker'].isin(['CASH'] + SPECIAL_RESERVE_TICKERS)
@@ -708,10 +715,9 @@ def run_rebalance(
         display_name=display_name,
         export_path=export_path,
         account_filter=account_filter,
-        default_messages=default_messages,
         df_target_summary=df_target_summary,
-        bills_per_month_usd=bills,
-        cash_for_bills_months=months,
+        cash_for_bills_usd=cash_for_bills,
+        cash_for_bills_source=cash_for_bills_source,
         tax_owed_usd=tax,
         cash_reserve_usd=cash_reserve_usd,
         total_portfolio_value=total_portfolio_value,

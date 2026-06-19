@@ -8,8 +8,12 @@
         "value": "Your Account Name As Shown In Export"
       },
       "FILE_PATTERN": "Portfolio_Positions_*.csv",
-      "BILLS_PER_MONTH_IN_USD": "$0",
-      "CASH_FOR_BILLS_IN_MONTHS": "0",
+      "CASH_FOR_BILLS_IN_USD": "$0",
+      "CASH_FOR_BILLS_SOURCE": {
+        "BILLS_PER_MONTH_IN_USD": "$0",
+        "CASH_FOR_BILLS_IN_MONTHS": "0"
+      },
+      "_comment_CASH_FOR_BILLS": "When CASH_FOR_BILLS_SOURCE is present with both keys, its product overrides CASH_FOR_BILLS_IN_USD",
       "TAX_OWED_IN_USD": "$0"
     },
     "fidelity-crypto": {
@@ -19,22 +23,19 @@
         "value": "Crypto Portfolio"
       },
       "FILE_PATTERN": "Portfolio_Positions_*.csv",
-      "BILLS_PER_MONTH_IN_USD": 0,
-      "CASH_FOR_BILLS_IN_MONTHS": 0,
+      "CASH_FOR_BILLS_IN_USD": 0,
       "TAX_OWED_IN_USD": 0
     },
     "coinbase-btc": {
       "display_name": "Coinbase BTC",
       "FILE_PATTERN": "Portfolio_Positions_*.csv",
-      "BILLS_PER_MONTH_IN_USD": 0,
-      "CASH_FOR_BILLS_IN_MONTHS": 0,
+      "CASH_FOR_BILLS_IN_USD": 0,
       "TAX_OWED_IN_USD": 0
     },
     "coinbase-eth": {
       "display_name": "Coinbase ETH",
       "FILE_PATTERN": "Portfolio_Positions_*.csv",
-      "BILLS_PER_MONTH_IN_USD": 0,
-      "CASH_FOR_BILLS_IN_MONTHS": 0,
+      "CASH_FOR_BILLS_IN_USD": 0,
       "TAX_OWED_IN_USD": 0
     }
   }
