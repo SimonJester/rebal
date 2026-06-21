@@ -14,7 +14,7 @@ import pandas as pd
 
 DEFAULT_TAX_OWED_USD = 0.0
 
-FIDELITY_CASH_SYMBOLS = [
+CASH_POOL_SYMBOLS = [
     'SPAXX**', 'SHV', 'USFR', 'BIL', 'SGOV', 'Pending activity', 'USD***',
 ]
 CASH_META_TICKER = '_CASH'
@@ -400,13 +400,13 @@ def resolve_safe_asset(
     if not ticker:
         return DEFAULT_SAFE_ASSET
     if ticker != CASH_META_TICKER:
-        cash_upper = [s.upper() for s in FIDELITY_CASH_SYMBOLS]
+        cash_upper = [s.upper() for s in CASH_POOL_SYMBOLS]
         if ticker in cash_upper:
             raise RebalError(
                 f"\n*** ERROR: SAFE_ASSET CONFLICT ***\n"
-                f"SAFE_ASSET '{ticker}' is listed in FIDELITY_CASH_SYMBOLS.\n"
+                f"SAFE_ASSET '{ticker}' is listed in CASH_POOL_SYMBOLS.\n"
                 f"A cash-pool symbol cannot also be the safe asset.\n"
-                f"Remove it from FIDELITY_CASH_SYMBOLS or choose a different SAFE_ASSET."
+                f"Remove it from CASH_POOL_SYMBOLS or choose a different SAFE_ASSET."
             )
     return ticker
 
@@ -468,7 +468,7 @@ def parse_portfolio_export(
         )
     except FileNotFoundError:
         raise RebalError(
-            f"\n*** ERROR: Fidelity export file not found at the determined path: "
+            f"\n*** ERROR: Export file not found at the determined path: "
             f"'{export_path}' ***"
         ) from None
 
@@ -488,7 +488,7 @@ def parse_portfolio_export(
 
     if 'Current Value' not in df_filtered.columns:
         raise RebalError(
-            "\n*** ERROR: Fidelity export file is missing the required column "
+            "\n*** ERROR: Export file is missing the required column "
             "'Current Value'. ***"
         )
 
@@ -503,7 +503,7 @@ def parse_portfolio_export(
         df_clean = df_filtered[['Symbol', 'Current Value']].copy()
     except KeyError as e:
         raise RebalError(
-            f"\n*** ERROR: Fidelity export file is missing the required column {e}. ***"
+            f"\n*** ERROR: Export file is missing the required column {e}. ***"
         ) from None
 
     df_clean.rename(
@@ -637,7 +637,7 @@ def run_rebalance(
         ~df_target_summary['Ticker_Target'].isin(SPECIAL_RESERVE_TICKERS)
     ].copy()
 
-    cash_symbols_upper = [s.upper() for s in FIDELITY_CASH_SYMBOLS]
+    cash_symbols_upper = [s.upper() for s in CASH_POOL_SYMBOLS]
     current_cash_value = df_portfolio[
         df_portfolio['Ticker'].isin(cash_symbols_upper)
     ]['Current_Value'].sum()

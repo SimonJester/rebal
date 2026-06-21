@@ -7,7 +7,7 @@ import pytest
 
 from rebal_core import (
     CASH_META_TICKER,
-    FIDELITY_CASH_SYMBOLS,
+    CASH_POOL_SYMBOLS,
     AccountFilter,
     RebalError,
     find_export_file,
@@ -291,7 +291,7 @@ def test_resolve_safe_asset_case_insensitive():
 
 
 def test_resolve_safe_asset_rejects_cash_symbol():
-    """SAFE_ASSET cannot be a FIDELITY_CASH_SYMBOLS entry."""
+    """SAFE_ASSET cannot be a CASH_POOL_SYMBOLS entry."""
     for sym in ['SPAXX**', 'SHV', 'USFR']:
         with pytest.raises(RebalError, match='SAFE_ASSET CONFLICT'):
             resolve_safe_asset({'SAFE_ASSET': sym})
