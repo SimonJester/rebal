@@ -108,7 +108,8 @@ Top-level keys (no `portfolios` object) still work; the script treats the portfo
 Required per portfolio: `BILLS_PER_MONTH_IN_USD`, `CASH_FOR_BILLS_IN_MONTHS`, `TAX_OWED_IN_USD`. Dollar amounts may include `$` and commas.
 
 Optional: `ACCOUNT_FILTER` (`column` + `value` matched in the positions CSV), `FILE_PATTERN`,
-`display_name`. Legacy string values still work (treated as `Account Name` = that string).
+`display_name`, `SYMBOL_COLUMN`, `VALUE_COLUMN` (for non-Fidelity position exports or future API sources).
+Legacy string values still work (treated as `Account Name` = that string).
 
 ## Portfolios in this repo
 

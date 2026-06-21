@@ -194,6 +194,9 @@ def load_portfolio_config(
     portfolio_config['TARGETS_FILE'] = f"alloc.{portfolio_key}.csv"
     portfolio_config.setdefault('FILE_PATTERN', 'Portfolio_Positions_*.csv')
     portfolio_config.setdefault('display_name', portfolio_key)
+    # Column names for position exports (for future non-Fidelity sources like Coinbase API)
+    portfolio_config.setdefault('SYMBOL_COLUMN', 'Symbol')
+    portfolio_config.setdefault('VALUE_COLUMN', 'Current Value')
     return config, portfolio_config
 
 
@@ -481,7 +484,14 @@ def normalize_targets(df_targets: pd.DataFrame) -> pd.DataFrame:
 def parse_portfolio_export(
     export_path: str,
     account_filter: AccountFilter | None,
+    symbol_col: str = 'Symbol',
+    value_col: str = 'Current Value',
 ) -> pd.DataFrame:
+    """Parse a positions export CSV into Ticker / Current_Value.
+
+    Column names are configurable to support different brokers (e.g. future Coinbase API).
+    Defaults match Fidelity-style exports.
+    """
     try:
         df_raw = pd.read_csv(
             export_path,
@@ -510,28 +520,28 @@ def parse_portfolio_export(
     else:
         df_filtered = df_raw.copy()
 
-    if 'Current Value' not in df_filtered.columns:
+    if value_col not in df_filtered.columns:
         raise RebalError(
-            "\n*** ERROR: Export file is missing the required column "
-            "'Current Value'. ***"
+            f"\n*** ERROR: Export file is missing the required column "
+            f"'{value_col}'. ***"
         )
 
-    df_filtered['Current Value'] = pd.to_numeric(
-        df_filtered['Current Value'].astype(str)
+    df_filtered[value_col] = pd.to_numeric(
+        df_filtered[value_col].astype(str)
         .str.replace('$', '', regex=False)
         .str.replace(',', '', regex=False),
         errors='coerce',
     ).fillna(0.0)
 
     try:
-        df_clean = df_filtered[['Symbol', 'Current Value']].copy()
+        df_clean = df_filtered[[symbol_col, value_col]].copy()
     except KeyError as e:
         raise RebalError(
             f"\n*** ERROR: Export file is missing the required column {e}. ***"
         ) from None
 
     df_clean.rename(
-        columns={'Symbol': 'Ticker', 'Current Value': 'Current_Value'},
+        columns={symbol_col: 'Ticker', value_col: 'Current_Value'},
         inplace=True,
     )
     df_clean['Ticker'] = df_clean['Ticker'].str.upper()
@@ -733,13 +743,18 @@ def sort_trades_by_off_ratio(
 
 def run_rebalance(
     *,
-    export_path: str,
+    export_path: str | None = None,
+    positions_df: pd.DataFrame | None = None,
     targets_file: str,
     pct_of_max_file: str,
     full_config: dict[str, Any],
     portfolio_config: dict[str, Any],
 ) -> RebalanceResult:
-    """Compute rebalance trades from config files and a position export."""
+    """Compute rebalance trades from config files and a position export.
+
+    Either provide export_path (for CSV) or positions_df (for future API sources).
+    positions_df (if given) should already contain at least 'Ticker' and 'Current_Value'.
+    """
     display_name = portfolio_config.get(
         'display_name', portfolio_config['portfolio_key'],
     )
@@ -752,7 +767,24 @@ def run_rebalance(
     )
     df_targets = append_reserve_rows(df_targets, full_config, portfolio_config)
     df_targets = normalize_targets(df_targets)
-    df_portfolio = parse_portfolio_export(export_path, account_filter)
+
+    if positions_df is not None:
+        df_portfolio = positions_df.copy()
+    else:
+        if export_path is None:
+            raise RebalError("\n*** ERROR: No positions provided (export_path or positions_df) ***")
+        symbol_col = portfolio_config.get('SYMBOL_COLUMN', 'Symbol')
+        value_col = portfolio_config.get('VALUE_COLUMN', 'Current Value')
+        df_portfolio = parse_portfolio_export(export_path, account_filter, symbol_col, value_col)
+
+    # Ensure standard columns and filter ignored tickers (for both paths)
+    if 'Ticker' not in df_portfolio.columns:
+        # Fallback for raw API data that might use symbol col
+        sym = portfolio_config.get('SYMBOL_COLUMN', 'Symbol')
+        if sym in df_portfolio.columns:
+            df_portfolio = df_portfolio.rename(columns={sym: 'Ticker'})
+    df_portfolio['Ticker'] = df_portfolio.get('Ticker', '').astype(str).str.upper()
+    df_portfolio = df_portfolio[~df_portfolio['Ticker'].isin(IGNORE_PORTFOLIO_TICKERS)].copy()
 
     # Per-portfolio cash pool (Chunk 2)
     cash_pool_symbols = get_cash_pool_symbols(portfolio_config)
