@@ -720,10 +720,14 @@ def run_rebalance(
     total_investable = total_portfolio_value - cash_reserve_usd
 
     # Build the rebalancing universe: invested assets + _CASH row
-    cash_row_temp = pd.DataFrame([
-        {'Ticker': CASH_META_TICKER, 'Current_Value': current_cash_value},
-    ])
-    df_portfolio_rebal = pd.concat([df_invested_assets, cash_row_temp], ignore_index=True)
+    # Only introduce _CASH if a cash pool is defined for this portfolio
+    if cash_pool_symbols:
+        cash_row_temp = pd.DataFrame([
+            {'Ticker': CASH_META_TICKER, 'Current_Value': current_cash_value},
+        ])
+        df_portfolio_rebal = pd.concat([df_invested_assets, cash_row_temp], ignore_index=True)
+    else:
+        df_portfolio_rebal = df_invested_assets.copy()
 
     df_targets_alloc = df_targets_alloc.copy()
     df_targets_alloc['Ticker'] = df_targets_alloc['Ticker'].replace(
@@ -880,7 +884,26 @@ def run_rebalance(
         last_tickers=last_tickers,
     )
 
+    # Build current holdings for report.
+    # df_rebalance only contains non-cash + _CASH at this point, but we add
+    # explicit cleaning for robustness (never leak cash pool individuals).
     df_current = df_rebalance[['Ticker', 'Current_Value']].copy()
+
+    # Cleaner Ticker_Owned reporting for cash pools:
+    # - Never show individual cash-pool tickers (consolidated into _CASH).
+    # - If cash pool defined but no matching tickers in export, still show
+    #   _CASH with $0.
+    if cash_pool_symbols:
+        df_current = df_current[
+            (df_current['Ticker'] == CASH_META_TICKER) |
+            ~df_current['Ticker'].isin(cash_pool_symbols)
+        ].copy()
+        if CASH_META_TICKER not in df_current['Ticker'].values:
+            df_current = pd.concat([
+                df_current,
+                pd.DataFrame([{'Ticker': CASH_META_TICKER, 'Current_Value': 0.0}])
+            ], ignore_index=True)
+
     df_current['is_cash'] = df_current['Ticker'] == CASH_META_TICKER
     df_current = df_current.sort_values(
         by=['is_cash', 'Ticker'], ascending=[True, True],
