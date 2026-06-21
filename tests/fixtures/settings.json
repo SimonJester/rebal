@@ -8,9 +8,10 @@
         "value": "Test Account"
       },
       "FILE_PATTERN": "Portfolio_Positions_test.csv",
+      "CASH_POOL_TICKERS": ["SPAXX**", "SHV", "USFR", "BIL", "SGOV", "Pending activity", "USD***"],
       "CASH_FOR_BILLS_IN_USD": 0,
       "CASH_FOR_BILLS_SOURCE": {
-        "_comment_CASH_FOR_BILLS": "When CASH_FOR_BILLS_SOURCE is present with both keys, its product overrides CASH_FOR_BILLS_IN_USD",
+        "_comment_CASH_FOR_BILLS": "When CASH_FOR_BILLS_SOURCE is present with both keys (BILLS_PER_MONTH_IN_USD and CASH_FOR_BILLS_IN_MONTHS), its product overrides CASH_FOR_BILLS_IN_USD",
         "BILLS_PER_MONTH_IN_USD": 5000,
         "CASH_FOR_BILLS_IN_MONTHS": 2
       },

@@ -23,7 +23,7 @@ DEFAULT_SAFE_ASSET = '_CASH'
 NON_RESERVE_KEYS = {
     'ACCOUNT_FILTER', 'FILE_PATTERN', 'display_name', 'portfolio_key',
     'portfolios', 'default_portfolio', 'TARGETS_FILE',
-    'CASH_FOR_BILLS_SOURCE', 'SAFE_ASSET',
+    'CASH_FOR_BILLS_SOURCE', 'SAFE_ASSET', 'CASH_POOL_TICKERS',
 }
 
 REQUIRED_ALLOC_COLS = ['Asset_Type', 'Ticker', 'Max_Allocation_Pct']
@@ -39,6 +39,26 @@ TICKERS_TO_EXCLUDE_INVESTED = [
 # Legacy alias for external code that imported the old name
 INVESTED_CASH_TICKER = CASH_META_TICKER
 IGNORE_PORTFOLIO_TICKERS = ['LTCG', 'STCG', 'INCOME']
+
+
+def get_cash_pool_symbols(portfolio_config: dict[str, Any]) -> list[str]:
+    """Return the effective list of tickers that consolidate into _CASH for this portfolio.
+
+    - If 'CASH_POOL_TICKERS' is present in the portfolio config:
+        - None or empty list [] → no cash pool (returns []).
+        - Otherwise use the provided list (uppercased).
+    - If the key is absent, fall back to the built-in default CASH_POOL_SYMBOLS.
+    """
+    if 'CASH_POOL_TICKERS' in portfolio_config:
+        raw = portfolio_config['CASH_POOL_TICKERS']
+        if raw is None:
+            return []
+        if isinstance(raw, (list, tuple)):
+            cleaned = [str(x).strip().upper() for x in raw if str(x).strip()]
+            return cleaned
+        return []
+    # Fallback to default (for backward compat and existing setups)
+    return [s.upper() for s in CASH_POOL_SYMBOLS]
 
 
 class RebalError(Exception):
@@ -391,8 +411,12 @@ def resolve_cash_for_bills(
 
 def resolve_safe_asset(
     reserve_settings: dict[str, Any],
+    cash_pool_symbols: list[str] | None = None,
 ) -> str:
-    """Return the SAFE_ASSET ticker from settings, defaulting to _CASH."""
+    """Return the SAFE_ASSET ticker from settings, defaulting to _CASH.
+
+    cash_pool_symbols: effective list for this portfolio (if None, uses default).
+    """
     raw = reserve_settings.get('SAFE_ASSET', DEFAULT_SAFE_ASSET)
     if raw is None:
         return DEFAULT_SAFE_ASSET
@@ -400,13 +424,13 @@ def resolve_safe_asset(
     if not ticker:
         return DEFAULT_SAFE_ASSET
     if ticker != CASH_META_TICKER:
-        cash_upper = [s.upper() for s in CASH_POOL_SYMBOLS]
-        if ticker in cash_upper:
+        pool = cash_pool_symbols or [s.upper() for s in CASH_POOL_SYMBOLS]
+        if ticker in pool:
             raise RebalError(
-                f"\n*** ERROR: SAFE_ASSET CONFLICT ***\n"
-                f"SAFE_ASSET '{ticker}' is listed in CASH_POOL_SYMBOLS.\n"
-                f"A cash-pool symbol cannot also be the safe asset.\n"
-                f"Remove it from CASH_POOL_SYMBOLS or choose a different SAFE_ASSET."
+                "\n*** ERROR: SAFE_ASSET CONFLICT ***\n"
+                f"SAFE_ASSET '{ticker}' is listed in the portfolio's CASH_POOL_TICKERS.\n"
+                "A cash-pool ticker cannot also be the safe asset.\n"
+                "Remove it from CASH_POOL_TICKERS or choose a different SAFE_ASSET."
             )
     return ticker
 
@@ -533,6 +557,26 @@ def validate_cash_and_invested_alloc(df_targets: pd.DataFrame) -> None:
         )
 
 
+def _validate_cash_pool_tickers_not_allocated(
+    df_targets: pd.DataFrame, cash_pool_symbols: list[str], display_name: str
+) -> None:
+    """Cash pool tickers must not have target allocations (they are handled via _CASH)."""
+    if not cash_pool_symbols:
+        return
+    pool = set(cash_pool_symbols)
+    # Tickers in targets are already uppercased by load_targets_raw
+    conflicts = [t for t in df_targets['Ticker'].unique() if t in pool]
+    if conflicts:
+        raise RebalError(
+            "\n*** ERROR: CASH POOL TICKER HAS ALLOCATION ***\n"
+            f"Portfolio: {display_name}\n"
+            "These tickers appear in both CASH_POOL_TICKERS and the alloc file:\n"
+            f"  {', '.join(sorted(conflicts))}\n"
+            "Cash pool tickers must not be given Max_Allocation_Pct entries.\n"
+            "Remove them from the alloc.*.csv file or from CASH_POOL_TICKERS."
+        )
+
+
 def sort_trades_by_off_ratio(
     df: pd.DataFrame,
     last_tickers: set[str] | None = None,
@@ -593,12 +637,18 @@ def run_rebalance(
     df_targets = normalize_targets(df_targets)
     df_portfolio = parse_portfolio_export(export_path, account_filter)
 
+    # Per-portfolio cash pool (Chunk 2)
+    cash_pool_symbols = get_cash_pool_symbols(portfolio_config)
+
+    # Enforce: cash pool tickers must not have allocations
+    _validate_cash_pool_tickers_not_allocated(df_targets, cash_pool_symbols, display_name)
+
     validate_cash_and_invested_alloc(df_targets)
 
     # --- Resolve cash reserve directly from settings (not dataframe) ---
     reserve_settings = _get_reserve_settings(full_config, portfolio_config)
     cash_for_bills, cash_for_bills_source = resolve_cash_for_bills(reserve_settings)
-    safe_asset_ticker = resolve_safe_asset(reserve_settings)
+    safe_asset_ticker = resolve_safe_asset(reserve_settings, cash_pool_symbols)
 
     tax_raw = reserve_settings.get('TAX_OWED_IN_USD', 0)
     tax = _try_parse_float(tax_raw)
@@ -609,6 +659,18 @@ def run_rebalance(
         raise RebalError("\n*** ERROR: NEGATIVE RESERVE VALUES NOT ALLOWED ***")
 
     cash_reserve_usd = cash_for_bills + tax
+
+    # Cash pool required when there are reserves to protect
+    if not cash_pool_symbols and cash_reserve_usd > 0:
+        raise RebalError(
+            "\n*** ERROR: CASH POOL REQUIRED FOR RESERVES ***\n"
+            f"Portfolio '{display_name}' has no CASH_POOL_TICKERS (or it is empty),\n"
+            f"but the cash reserve for bills + taxes is ${cash_reserve_usd:,.2f}.\n\n"
+            "Add this to the portfolio in settings.json (example):\n"
+            '  "CASH_POOL_TICKERS": ["SPAXX**", "SHV", "USFR", "BIL", "SGOV",\n'
+            '                        "Pending activity", "USD***"]\n\n'
+            "Use an empty list [] only when this portfolio has zero cash reserves."
+        )
 
     # --- Target allocations ---
     df_targets['Target_Allocation'] = (
@@ -637,7 +699,7 @@ def run_rebalance(
         ~df_target_summary['Ticker_Target'].isin(SPECIAL_RESERVE_TICKERS)
     ].copy()
 
-    cash_symbols_upper = [s.upper() for s in CASH_POOL_SYMBOLS]
+    cash_symbols_upper = cash_pool_symbols
     current_cash_value = df_portfolio[
         df_portfolio['Ticker'].isin(cash_symbols_upper)
     ]['Current_Value'].sum()

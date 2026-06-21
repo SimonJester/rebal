@@ -8,11 +8,12 @@
         "value": "Your Account Name As Shown In Export"
       },
       "FILE_PATTERN": "Portfolio_Positions_*.csv",
-      "_comment_SAFE_ASSET": "Ticker that absorbs residual allocation. _CASH = consolidated cash pool (SPAXX**, SHV, etc). A real ticker like KISS gets explicit allocation + residual, netted into one trade.",
+      "CASH_POOL_TICKERS": ["SPAXX**", "SHV", "USFR", "BIL", "SGOV", "Pending activity", "USD***"],
+      "_comment_SAFE_ASSET": "Ticker that absorbs residual allocation. _CASH = consolidated cash pool defined by CASH_POOL_TICKERS. A real ticker like KISS gets explicit allocation + residual, netted into one trade.",
       "SAFE_ASSET": "_CASH",
       "CASH_FOR_BILLS_IN_USD": "$0",
       "CASH_FOR_BILLS_SOURCE": {
-        "_comment_CASH_FOR_BILLS": "When CASH_FOR_BILLS_SOURCE is present with both keys, its product overrides CASH_FOR_BILLS_IN_USD",
+        "_comment_CASH_FOR_BILLS": "When CASH_FOR_BILLS_SOURCE is present with both keys (BILLS_PER_MONTH_IN_USD and CASH_FOR_BILLS_IN_MONTHS), its product overrides CASH_FOR_BILLS_IN_USD",
         "BILLS_PER_MONTH_IN_USD": "$0",
         "CASH_FOR_BILLS_IN_MONTHS": "0"
       },
@@ -25,9 +26,10 @@
         "value": "Crypto Portfolio"
       },
       "FILE_PATTERN": "Portfolio_Positions_*.csv",
+      "CASH_POOL_TICKERS": [],
       "CASH_FOR_BILLS_IN_USD": 0,
       "CASH_FOR_BILLS_SOURCE": {
-        "_comment_CASH_FOR_BILLS": "When CASH_FOR_BILLS_SOURCE is present with both keys, its product overrides CASH_FOR_BILLS_IN_USD",
+        "_comment_CASH_FOR_BILLS": "When CASH_FOR_BILLS_SOURCE is present with both keys (BILLS_PER_MONTH_IN_USD and CASH_FOR_BILLS_IN_MONTHS), its product overrides CASH_FOR_BILLS_IN_USD",
         "BILLS_PER_MONTH_IN_USD": 0,
         "CASH_FOR_BILLS_IN_MONTHS": 0
       },
@@ -36,9 +38,10 @@
     "coinbase-btc": {
       "display_name": "Coinbase BTC",
       "FILE_PATTERN": "Portfolio_Positions_*.csv",
+      "CASH_POOL_TICKERS": [],
       "CASH_FOR_BILLS_IN_USD": 0,
       "CASH_FOR_BILLS_SOURCE": {
-        "_comment_CASH_FOR_BILLS": "When CASH_FOR_BILLS_SOURCE is present with both keys, its product overrides CASH_FOR_BILLS_IN_USD",
+        "_comment_CASH_FOR_BILLS": "When CASH_FOR_BILLS_SOURCE is present with both keys (BILLS_PER_MONTH_IN_USD and CASH_FOR_BILLS_IN_MONTHS), its product overrides CASH_FOR_BILLS_IN_USD",
         "BILLS_PER_MONTH_IN_USD": 0,
         "CASH_FOR_BILLS_IN_MONTHS": 0
       },
@@ -47,9 +50,10 @@
     "coinbase-eth": {
       "display_name": "Coinbase ETH",
       "FILE_PATTERN": "Portfolio_Positions_*.csv",
+      "CASH_POOL_TICKERS": [],
       "CASH_FOR_BILLS_IN_USD": 0,
       "CASH_FOR_BILLS_SOURCE": {
-        "_comment_CASH_FOR_BILLS": "When CASH_FOR_BILLS_SOURCE is present with both keys, its product overrides CASH_FOR_BILLS_IN_USD",
+        "_comment_CASH_FOR_BILLS": "When CASH_FOR_BILLS_SOURCE is present with both keys (BILLS_PER_MONTH_IN_USD and CASH_FOR_BILLS_IN_MONTHS), its product overrides CASH_FOR_BILLS_IN_USD",
         "BILLS_PER_MONTH_IN_USD": 0,
         "CASH_FOR_BILLS_IN_MONTHS": 0
       },
