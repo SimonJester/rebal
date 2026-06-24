@@ -8,6 +8,8 @@
         "value": "Test Account"
       },
       "FILE_PATTERN": "Portfolio_Positions_test.csv",
+      "SYMBOL_COLUMN": "Symbol",
+      "VALUE_COLUMN": "Current Value",
       "CASH_POOL_TICKERS": ["SPAXX**", "SHV", "USFR", "BIL", "SGOV", "Pending activity", "USD***"],
       "CASH_FOR_BILLS_IN_USD": 0,
       "CASH_FOR_BILLS_SOURCE": {

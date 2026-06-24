@@ -24,6 +24,7 @@ NON_RESERVE_KEYS = {
     'ACCOUNT_FILTER', 'FILE_PATTERN', 'display_name', 'portfolio_key',
     'portfolios', 'default_portfolio', 'TARGETS_FILE',
     'CASH_FOR_BILLS_SOURCE', 'SAFE_ASSET', 'CASH_POOL_TICKERS',
+    'SYMBOL_COLUMN', 'VALUE_COLUMN',
 }
 
 REQUIRED_ALLOC_COLS = ['Asset_Type', 'Ticker', 'Max_Allocation_Pct']
@@ -778,13 +779,19 @@ def run_rebalance(
         df_portfolio = parse_portfolio_export(export_path, account_filter, symbol_col, value_col)
 
     # Ensure standard columns and filter ignored tickers (for both paths)
+    sym_col = portfolio_config.get('SYMBOL_COLUMN', 'Symbol')
+    val_col = portfolio_config.get('VALUE_COLUMN', 'Current Value')
+
     if 'Ticker' not in df_portfolio.columns:
-        # Fallback for raw API data that might use symbol col
-        sym = portfolio_config.get('SYMBOL_COLUMN', 'Symbol')
-        if sym in df_portfolio.columns:
-            df_portfolio = df_portfolio.rename(columns={sym: 'Ticker'})
-    df_portfolio['Ticker'] = df_portfolio.get('Ticker', '').astype(str).str.upper()
-    df_portfolio = df_portfolio[~df_portfolio['Ticker'].isin(IGNORE_PORTFOLIO_TICKERS)].copy()
+        if sym_col in df_portfolio.columns:
+            df_portfolio = df_portfolio.rename(columns={sym_col: 'Ticker'})
+    if 'Current_Value' not in df_portfolio.columns:
+        if val_col in df_portfolio.columns:
+            df_portfolio = df_portfolio.rename(columns={val_col: 'Current_Value'})
+
+    if 'Ticker' in df_portfolio.columns:
+        df_portfolio['Ticker'] = df_portfolio['Ticker'].astype(str).str.upper()
+    df_portfolio = df_portfolio[~df_portfolio.get('Ticker', pd.Series()).isin(IGNORE_PORTFOLIO_TICKERS)].copy()
 
     # Per-portfolio cash pool (Chunk 2)
     cash_pool_symbols = get_cash_pool_symbols(portfolio_config)

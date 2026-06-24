@@ -14,6 +14,7 @@ from rebal_core import (
     load_portfolio_config,
     load_targets_raw,
     parse_account_filter,
+    parse_portfolio_export,
     resolve_cash_for_bills,
     resolve_data_path,
     resolve_positions_path,
@@ -482,3 +483,366 @@ def test_safe_asset_conflict_with_cash_symbol():
             full_config=full_config,
             portfolio_config=portfolio_config,
         )
+
+
+# --- Tests for SYMBOL_COLUMN / VALUE_COLUMN configuration (new in flexible parsing) ---
+
+def _write_custom_positions_csv(tmp_path, header, rows):
+    """Helper to write a temp positions CSV with given header and data rows."""
+    csv = tmp_path / 'positions_custom.csv'
+    content = header + '\n' + '\n'.join(rows) + '\n'
+    csv.write_text(content, encoding='utf-8')
+    return csv
+
+
+def test_column_config_with_both(tmp_path):
+    """Test with both SYMBOL_COLUMN and VALUE_COLUMN set to non-default names."""
+    header = 'Account Name,MyAsset,MyVal'
+    rows = [
+        'Test,AAA,"$60,000"',
+        'Test,BBB,"$40,000"',
+    ]
+    pos_csv = _write_custom_positions_csv(tmp_path, header, rows)
+    alloc = tmp_path / 'alloc.test.csv'
+    alloc.write_text('Asset_Type,Ticker,Max_Allocation_Pct\nStocks,AAA,60\nStocks,BBB,40\n', encoding='utf-8')
+    pct = tmp_path / 'pct_of_max_alloc.csv'
+    pct.write_text('Asset_Type,Pct_of_Max\nStocks,100\n', encoding='utf-8')
+
+    settings = tmp_path / 'settings.json'
+    import json
+    settings.write_text(json.dumps({
+        'default_portfolio': 'test',
+        'portfolios': {
+            'test': {
+                'display_name': 'Test',
+                'ACCOUNT_FILTER': {'column': 'Account Name', 'value': 'Test'},
+                'FILE_PATTERN': 'positions_custom.csv',
+                'SYMBOL_COLUMN': 'MyAsset',
+                'VALUE_COLUMN': 'MyVal',
+                'CASH_POOL_TICKERS': [],
+                'CASH_FOR_BILLS_IN_USD': 0,
+                'TAX_OWED_IN_USD': 0,
+            }
+        }
+    }), encoding='utf-8')
+
+    full_config, portfolio_config = load_portfolio_config(str(settings), cli_portfolio_key='test')
+    result = run_rebalance(
+        export_path=str(pos_csv),
+        targets_file=str(alloc),
+        pct_of_max_file=str(pct),
+        full_config=full_config,
+        portfolio_config=portfolio_config,
+    )
+    # Should parse correctly: 60k + 40k = 100k total (no cash)
+    assert result.total_portfolio_value == pytest.approx(100_000.0)
+    assert len(result.df_current_portfolio) == 2
+
+
+def test_column_config_without_both(tmp_path):
+    """Test without SYMBOL_COLUMN or VALUE_COLUMN (rely on defaults)."""
+    header = 'Account Name,Symbol,Current Value'
+    rows = [
+        'Test,AAA,"$60,000"',
+        'Test,BBB,"$40,000"',
+    ]
+    pos_csv = _write_custom_positions_csv(tmp_path, header, rows)
+    alloc = tmp_path / 'alloc.test.csv'
+    alloc.write_text('Asset_Type,Ticker,Max_Allocation_Pct\nStocks,AAA,60\nStocks,BBB,40\n', encoding='utf-8')
+    pct = tmp_path / 'pct_of_max_alloc.csv'
+    pct.write_text('Asset_Type,Pct_of_Max\nStocks,100\n', encoding='utf-8')
+
+    settings = tmp_path / 'settings.json'
+    import json
+    settings.write_text(json.dumps({
+        'default_portfolio': 'test',
+        'portfolios': {
+            'test': {
+                'display_name': 'Test',
+                'ACCOUNT_FILTER': {'column': 'Account Name', 'value': 'Test'},
+                'FILE_PATTERN': 'positions_custom.csv',
+                # no SYMBOL_COLUMN or VALUE_COLUMN -> defaults
+                'CASH_POOL_TICKERS': [],
+                'CASH_FOR_BILLS_IN_USD': 0,
+                'TAX_OWED_IN_USD': 0,
+            }
+        }
+    }), encoding='utf-8')
+
+    full_config, portfolio_config = load_portfolio_config(str(settings), cli_portfolio_key='test')
+    result = run_rebalance(
+        export_path=str(pos_csv),
+        targets_file=str(alloc),
+        pct_of_max_file=str(pct),
+        full_config=full_config,
+        portfolio_config=portfolio_config,
+    )
+    assert result.total_portfolio_value == pytest.approx(100_000.0)
+
+
+def test_column_config_only_symbol(tmp_path):
+    """Test with only SYMBOL_COLUMN set (VALUE_COLUMN uses default)."""
+    header = 'Account Name,MyTicker,Current Value'
+    rows = [
+        'Test,AAA,"$60,000"',
+        'Test,BBB,"$40,000"',
+    ]
+    pos_csv = _write_custom_positions_csv(tmp_path, header, rows)
+    alloc = tmp_path / 'alloc.test.csv'
+    alloc.write_text('Asset_Type,Ticker,Max_Allocation_Pct\nStocks,AAA,60\nStocks,BBB,40\n', encoding='utf-8')
+    pct = tmp_path / 'pct_of_max_alloc.csv'
+    pct.write_text('Asset_Type,Pct_of_Max\nStocks,100\n', encoding='utf-8')
+
+    settings = tmp_path / 'settings.json'
+    import json
+    settings.write_text(json.dumps({
+        'default_portfolio': 'test',
+        'portfolios': {
+            'test': {
+                'display_name': 'Test',
+                'ACCOUNT_FILTER': {'column': 'Account Name', 'value': 'Test'},
+                'FILE_PATTERN': 'positions_custom.csv',
+                'SYMBOL_COLUMN': 'MyTicker',
+                # VALUE_COLUMN omitted -> default "Current Value"
+                'CASH_POOL_TICKERS': [],
+                'CASH_FOR_BILLS_IN_USD': 0,
+                'TAX_OWED_IN_USD': 0,
+            }
+        }
+    }), encoding='utf-8')
+
+    full_config, portfolio_config = load_portfolio_config(str(settings), cli_portfolio_key='test')
+    result = run_rebalance(
+        export_path=str(pos_csv),
+        targets_file=str(alloc),
+        pct_of_max_file=str(pct),
+        full_config=full_config,
+        portfolio_config=portfolio_config,
+    )
+    assert result.total_portfolio_value == pytest.approx(100_000.0)
+
+
+def test_column_config_only_value(tmp_path):
+    """Test with only VALUE_COLUMN set (SYMBOL_COLUMN uses default)."""
+    header = 'Account Name,Symbol,MyVal'
+    rows = [
+        'Test,AAA,"$60,000"',
+        'Test,BBB,"$40,000"',
+    ]
+    pos_csv = _write_custom_positions_csv(tmp_path, header, rows)
+    alloc = tmp_path / 'alloc.test.csv'
+    alloc.write_text('Asset_Type,Ticker,Max_Allocation_Pct\nStocks,AAA,60\nStocks,BBB,40\n', encoding='utf-8')
+    pct = tmp_path / 'pct_of_max_alloc.csv'
+    pct.write_text('Asset_Type,Pct_of_Max\nStocks,100\n', encoding='utf-8')
+
+    settings = tmp_path / 'settings.json'
+    import json
+    settings.write_text(json.dumps({
+        'default_portfolio': 'test',
+        'portfolios': {
+            'test': {
+                'display_name': 'Test',
+                'ACCOUNT_FILTER': {'column': 'Account Name', 'value': 'Test'},
+                'FILE_PATTERN': 'positions_custom.csv',
+                # SYMBOL_COLUMN omitted -> default "Symbol"
+                'VALUE_COLUMN': 'MyVal',
+                'CASH_POOL_TICKERS': [],
+                'CASH_FOR_BILLS_IN_USD': 0,
+                'TAX_OWED_IN_USD': 0,
+            }
+        }
+    }), encoding='utf-8')
+
+    full_config, portfolio_config = load_portfolio_config(str(settings), cli_portfolio_key='test')
+    result = run_rebalance(
+        export_path=str(pos_csv),
+        targets_file=str(alloc),
+        pct_of_max_file=str(pct),
+        full_config=full_config,
+        portfolio_config=portfolio_config,
+    )
+    assert result.total_portfolio_value == pytest.approx(100_000.0)
+
+
+# --- Additional explicit tests for edge and corner cases ---
+
+def test_positions_df_with_custom_columns(tmp_path):
+    """positions_df path with raw DF using custom column names from config."""
+    df = pd.DataFrame({
+        'Account Name': ['Test', 'Test'],
+        'MyAsset': ['AAA', 'BBB'],
+        'MyVal': [60000.0, 40000.0],
+    })
+    alloc = tmp_path / 'alloc.test.csv'
+    alloc.write_text('Asset_Type,Ticker,Max_Allocation_Pct\nStocks,AAA,60\nStocks,BBB,40\n', encoding='utf-8')
+    pct = tmp_path / 'pct_of_max_alloc.csv'
+    pct.write_text('Asset_Type,Pct_of_Max\nStocks,100\n', encoding='utf-8')
+
+    settings = tmp_path / 'settings.json'
+    import json
+    settings.write_text(json.dumps({
+        'default_portfolio': 'test',
+        'portfolios': {
+            'test': {
+                'display_name': 'Test',
+                'ACCOUNT_FILTER': {'column': 'Account Name', 'value': 'Test'},
+                'FILE_PATTERN': 'x.csv',
+                'SYMBOL_COLUMN': 'MyAsset',
+                'VALUE_COLUMN': 'MyVal',
+                'CASH_POOL_TICKERS': [],
+                'CASH_FOR_BILLS_IN_USD': 0,
+                'TAX_OWED_IN_USD': 0,
+            }
+        }
+    }), encoding='utf-8')
+
+    full_config, portfolio_config = load_portfolio_config(str(settings), cli_portfolio_key='test')
+    result = run_rebalance(
+        positions_df=df,
+        targets_file=str(alloc),
+        pct_of_max_file=str(pct),
+        full_config=full_config,
+        portfolio_config=portfolio_config,
+    )
+    assert result.total_portfolio_value == pytest.approx(100_000.0)
+    assert len(result.df_current_portfolio) == 2
+
+
+def test_positions_df_already_normalized(tmp_path):
+    """positions_df already has Ticker/Current_Value (no column remapping needed)."""
+    df = pd.DataFrame({
+        'Ticker': ['AAA', 'BBB'],
+        'Current_Value': [60000.0, 40000.0],
+    })
+    alloc = tmp_path / 'alloc.test.csv'
+    alloc.write_text('Asset_Type,Ticker,Max_Allocation_Pct\nStocks,AAA,60\nStocks,BBB,40\n', encoding='utf-8')
+    pct = tmp_path / 'pct_of_max_alloc.csv'
+    pct.write_text('Asset_Type,Pct_of_Max\nStocks,100\n', encoding='utf-8')
+
+    settings = tmp_path / 'settings.json'
+    import json
+    settings.write_text(json.dumps({
+        'default_portfolio': 'test',
+        'portfolios': {
+            'test': {
+                'display_name': 'Test',
+                'ACCOUNT_FILTER': {'column': 'Account Name', 'value': 'Test'},
+                'FILE_PATTERN': 'x.csv',
+                'SYMBOL_COLUMN': 'Foo',
+                'VALUE_COLUMN': 'Bar',
+                'CASH_POOL_TICKERS': [],
+                'CASH_FOR_BILLS_IN_USD': 0,
+                'TAX_OWED_IN_USD': 0,
+            }
+        }
+    }), encoding='utf-8')
+
+    full_config, portfolio_config = load_portfolio_config(str(settings), cli_portfolio_key='test')
+    result = run_rebalance(
+        positions_df=df,
+        targets_file=str(alloc),
+        pct_of_max_file=str(pct),
+        full_config=full_config,
+        portfolio_config=portfolio_config,
+    )
+    assert result.total_portfolio_value == pytest.approx(100_000.0)
+
+
+def test_custom_columns_with_account_filter(tmp_path):
+    """Custom columns combined with ACCOUNT_FILTER."""
+    header = 'Acct,Asset,Val'
+    rows = [
+        'Kiss,AAA,"$60,000"',
+        'Kiss,BBB,"$40,000"',
+        'Other,CCC,"$10,000"',
+    ]
+    pos_csv = _write_custom_positions_csv(tmp_path, header, rows)
+    alloc = tmp_path / 'alloc.test.csv'
+    alloc.write_text('Asset_Type,Ticker,Max_Allocation_Pct\nStocks,AAA,60\nStocks,BBB,40\n', encoding='utf-8')
+    pct = tmp_path / 'pct_of_max_alloc.csv'
+    pct.write_text('Asset_Type,Pct_of_Max\nStocks,100\n', encoding='utf-8')
+
+    settings = tmp_path / 'settings.json'
+    import json
+    settings.write_text(json.dumps({
+        'default_portfolio': 'test',
+        'portfolios': {
+            'test': {
+                'display_name': 'Test',
+                'ACCOUNT_FILTER': {'column': 'Acct', 'value': 'Kiss'},
+                'FILE_PATTERN': 'positions_custom.csv',
+                'SYMBOL_COLUMN': 'Asset',
+                'VALUE_COLUMN': 'Val',
+                'CASH_POOL_TICKERS': [],
+                'CASH_FOR_BILLS_IN_USD': 0,
+                'TAX_OWED_IN_USD': 0,
+            }
+        }
+    }), encoding='utf-8')
+
+    full_config, portfolio_config = load_portfolio_config(str(settings), cli_portfolio_key='test')
+    result = run_rebalance(
+        export_path=str(pos_csv),
+        targets_file=str(alloc),
+        pct_of_max_file=str(pct),
+        full_config=full_config,
+        portfolio_config=portfolio_config,
+    )
+    assert result.total_portfolio_value == pytest.approx(100_000.0)
+    assert len(result.df_current_portfolio) == 2
+
+
+def test_custom_columns_error_missing_column(tmp_path):
+    """Error when configured column is missing from the CSV."""
+    header = 'Account Name,Symbol,Current Value'  # missing MyVal
+    rows = ['Test,AAA,"$60,000"']
+    pos_csv = _write_custom_positions_csv(tmp_path, header, rows)
+    alloc = tmp_path / 'alloc.test.csv'
+    alloc.write_text('Asset_Type,Ticker,Max_Allocation_Pct\nStocks,AAA,100\n', encoding='utf-8')
+    pct = tmp_path / 'pct_of_max_alloc.csv'
+    pct.write_text('Asset_Type,Pct_of_Max\nStocks,100\n', encoding='utf-8')
+
+    settings = tmp_path / 'settings.json'
+    import json
+    settings.write_text(json.dumps({
+        'default_portfolio': 'test',
+        'portfolios': {
+            'test': {
+                'display_name': 'Test',
+                'ACCOUNT_FILTER': {'column': 'Account Name', 'value': 'Test'},
+                'FILE_PATTERN': 'positions_custom.csv',
+                'SYMBOL_COLUMN': 'Symbol',
+                'VALUE_COLUMN': 'MyVal',
+                'CASH_POOL_TICKERS': [],
+                'CASH_FOR_BILLS_IN_USD': 0,
+                'TAX_OWED_IN_USD': 0,
+            }
+        }
+    }), encoding='utf-8')
+
+    full_config, portfolio_config = load_portfolio_config(str(settings), cli_portfolio_key='test')
+    with pytest.raises(RebalError, match="missing the required column"):
+        run_rebalance(
+            export_path=str(pos_csv),
+            targets_file=str(alloc),
+            pct_of_max_file=str(pct),
+            full_config=full_config,
+            portfolio_config=portfolio_config,
+        )
+
+
+def test_parse_portfolio_export_direct_custom(tmp_path):
+    """Direct test of parse_portfolio_export with custom columns."""
+    header = 'Foo,Bar'
+    rows = ['AAA,12345.67', 'BBB,9876.54']
+    pos_csv = _write_custom_positions_csv(tmp_path, header, rows)
+
+    df = parse_portfolio_export(
+        str(pos_csv),
+        None,
+        symbol_col='Foo',
+        value_col='Bar',
+    )
+    assert list(df.columns) == ['Ticker', 'Current_Value']
+    assert list(df['Ticker']) == ['AAA', 'BBB']
+    assert df['Current_Value'].iloc[0] == pytest.approx(12345.67)
