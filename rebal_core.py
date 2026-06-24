@@ -791,7 +791,8 @@ def run_rebalance(
 
     if 'Ticker' in df_portfolio.columns:
         df_portfolio['Ticker'] = df_portfolio['Ticker'].astype(str).str.upper()
-    df_portfolio = df_portfolio[~df_portfolio.get('Ticker', pd.Series()).isin(IGNORE_PORTFOLIO_TICKERS)].copy()
+        df_portfolio = df_portfolio[~df_portfolio['Ticker'].isin(IGNORE_PORTFOLIO_TICKERS)].copy()
+    # If no Ticker column, leave as-is (later code will surface appropriate error)
 
     # Per-portfolio cash pool (Chunk 2)
     cash_pool_symbols = get_cash_pool_symbols(portfolio_config)
