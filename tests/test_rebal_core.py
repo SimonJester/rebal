@@ -40,7 +40,7 @@ def test_resolve_data_path_finds_alloc_beside_settings():
 def test_parse_account_filter_object_and_describe():
     filt = parse_account_filter({'column': 'Account Name', 'value': 'Kiss Portfolio'})
     assert filt == AccountFilter(column='Account Name', value='Kiss Portfolio')
-    assert filt.describe() == "Filtered: 'Account Name' = 'Kiss Portfolio'"
+    assert filt.describe() == 'Filter: "Account Name" = "Kiss Portfolio"'
 
 
 def test_parse_account_filter_legacy_string():
@@ -407,7 +407,7 @@ def test_safe_asset_kiss_residual_flows_to_kiss(tmp_path):
 
 
 def test_safe_asset_default_cash_backward_compatible():
-    """With no SAFE_ASSET setting, behavior matches old INVESTED_CASH."""
+    """With no SAFE_ASSET setting, behavior matches the previous default cash handling."""
     full_config, portfolio_config = _load_fixture_config()
     result = run_rebalance(
         export_path=fixture_path('Portfolio_Positions_test.csv'),

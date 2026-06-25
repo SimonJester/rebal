@@ -34,11 +34,9 @@ SPECIAL_RESERVE_TICKERS = [
     'CASH_RESERVE_USD', 'CASH_FOR_BILLS_IN_USD', 'TAX_OWED_IN_USD',
 ]
 TICKERS_TO_EXCLUDE_INVESTED = [
-    'CASH', 'CASH_RESERVE_USD', 'CASH_FOR_BILLS_IN_USD', 'TAX_OWED_IN_USD',
+    'CASH_RESERVE_USD', 'CASH_FOR_BILLS_IN_USD', 'TAX_OWED_IN_USD',
 ]
 
-# Legacy alias for external code that imported the old name
-INVESTED_CASH_TICKER = CASH_META_TICKER
 IGNORE_PORTFOLIO_TICKERS = ['LTCG', 'STCG', 'INCOME']
 
 
@@ -72,7 +70,7 @@ class AccountFilter:
     value: str
 
     def describe(self) -> str:
-        return f"Filtered: '{self.column}' = '{self.value}'"
+        return f'Filter: "{self.column}" = "{self.value}"'
 
 
 def parse_account_filter(raw: Any) -> AccountFilter | None:
@@ -110,7 +108,7 @@ def parse_account_filter(raw: Any) -> AccountFilter | None:
 @dataclass
 class RebalanceResult:
     display_name: str
-    export_path: str
+    export_path: str | None
     account_filter: AccountFilter | None
     safe_asset_ticker: str
     df_target_summary: pd.DataFrame
@@ -123,6 +121,9 @@ class RebalanceResult:
     trades_sell: pd.DataFrame
     trades_buy: pd.DataFrame
     ticker_w_trade: int
+    symbol_column: str
+    value_column: str
+    cash_pool_tickers: list[str]
 
 
 def load_settings_file(settings_path: str) -> dict[str, Any]:
@@ -550,15 +551,6 @@ def parse_portfolio_export(
 
 
 def validate_cash_and_invested_alloc(df_targets: pd.DataFrame) -> None:
-    cash_max_row = df_targets[df_targets['Ticker'] == 'CASH']
-    if not cash_max_row.empty:
-        cash_max_pct = cash_max_row['Max_Allocation_Pct'].iloc[0]
-        if cash_max_pct != 100.0:
-            raise RebalError(
-                "\n*** ERROR: CASH ALLOCATION CONSTRAINT VIOLATION! ***\n"
-                "The 'Max_Allocation_Pct' for CASH must be 100.0."
-            )
-
     df_invested = df_targets[~df_targets['Ticker'].isin(TICKERS_TO_EXCLUDE_INVESTED)].copy()
     max_pct_sum = df_invested['Max_Allocation_Pct'].sum()
     if abs(max_pct_sum - 100.0) > 1e-6:
@@ -761,6 +753,15 @@ def run_rebalance(
     )
     account_filter = parse_account_filter(portfolio_config.get('ACCOUNT_FILTER'))
 
+    symbol_column = portfolio_config.get('SYMBOL_COLUMN', 'Symbol')
+    value_column = portfolio_config.get('VALUE_COLUMN', 'Current Value')
+    raw_cash = portfolio_config.get('CASH_POOL_TICKERS')
+    if raw_cash is None or not isinstance(raw_cash, (list, tuple)):
+        cash_pool_tickers = list(CASH_POOL_SYMBOLS)  # preserve original casing for display
+    else:
+        cash_pool_tickers = [str(x).strip() for x in raw_cash if str(x).strip()]
+    cash_pool_symbols = [s.upper() for s in cash_pool_tickers]
+
     df_targets_raw = load_targets_raw(targets_file)
     df_pct_of_max = load_pct_of_max(pct_of_max_file)
     df_targets = merge_targets_with_pct(
@@ -774,28 +775,20 @@ def run_rebalance(
     else:
         if export_path is None:
             raise RebalError("\n*** ERROR: No positions provided (export_path or positions_df) ***")
-        symbol_col = portfolio_config.get('SYMBOL_COLUMN', 'Symbol')
-        value_col = portfolio_config.get('VALUE_COLUMN', 'Current Value')
-        df_portfolio = parse_portfolio_export(export_path, account_filter, symbol_col, value_col)
+        df_portfolio = parse_portfolio_export(export_path, account_filter, symbol_column, value_column)
 
     # Ensure standard columns and filter ignored tickers (for both paths)
-    sym_col = portfolio_config.get('SYMBOL_COLUMN', 'Symbol')
-    val_col = portfolio_config.get('VALUE_COLUMN', 'Current Value')
-
     if 'Ticker' not in df_portfolio.columns:
-        if sym_col in df_portfolio.columns:
-            df_portfolio = df_portfolio.rename(columns={sym_col: 'Ticker'})
+        if symbol_column in df_portfolio.columns:
+            df_portfolio = df_portfolio.rename(columns={symbol_column: 'Ticker'})
     if 'Current_Value' not in df_portfolio.columns:
-        if val_col in df_portfolio.columns:
-            df_portfolio = df_portfolio.rename(columns={val_col: 'Current_Value'})
+        if value_column in df_portfolio.columns:
+            df_portfolio = df_portfolio.rename(columns={value_column: 'Current_Value'})
 
     if 'Ticker' in df_portfolio.columns:
         df_portfolio['Ticker'] = df_portfolio['Ticker'].astype(str).str.upper()
         df_portfolio = df_portfolio[~df_portfolio['Ticker'].isin(IGNORE_PORTFOLIO_TICKERS)].copy()
     # If no Ticker column, leave as-is (later code will surface appropriate error)
-
-    # Per-portfolio cash pool (from settings or default)
-    cash_pool_symbols = get_cash_pool_symbols(portfolio_config)
 
     # Enforce: cash pool tickers must not have allocations
     _validate_cash_pool_tickers_not_allocated(df_targets, cash_pool_symbols, display_name)
@@ -840,14 +833,9 @@ def run_rebalance(
         columns={'Target_Allocation': 'Target_Percent', 'Ticker': 'Ticker_Target'},
         inplace=True,
     )
-    df_target_summary['Ticker_Target'] = df_target_summary['Ticker_Target'].replace(
-        {'CASH': CASH_META_TICKER},
-    )
-
     non_cash_sum = df_targets[
-        ~df_targets['Ticker'].isin(['CASH'] + SPECIAL_RESERVE_TICKERS)
+        ~df_targets['Ticker'].isin(SPECIAL_RESERVE_TICKERS)
     ]['Target_Allocation'].sum()
-    df_targets.loc[df_targets['Ticker'] == 'CASH', 'Target_Allocation'] = 100.0 - non_cash_sum
 
     df_targets_alloc = df_targets[
         ~df_targets['Ticker'].isin(SPECIAL_RESERVE_TICKERS)
@@ -871,9 +859,6 @@ def run_rebalance(
         df_portfolio_rebal = df_invested_assets.copy()
 
     df_targets_alloc = df_targets_alloc.copy()
-    df_targets_alloc['Ticker'] = df_targets_alloc['Ticker'].replace(
-        {'CASH': CASH_META_TICKER},
-    )
 
     df_rebalance = pd.merge(
         df_portfolio_rebal,
@@ -991,4 +976,7 @@ def run_rebalance(
         trades_sell=trades_sell,
         trades_buy=trades_buy,
         ticker_w_trade=ticker_w,
+        symbol_column=symbol_column,
+        value_column=value_column,
+        cash_pool_tickers=cash_pool_tickers,
     )

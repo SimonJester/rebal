@@ -8,7 +8,6 @@ import sys
 import pandas as pd
 
 from rebal_core import (
-    CASH_META_TICKER,
     RebalError,
     RebalanceResult,
     find_export_file,
@@ -113,11 +112,16 @@ def print_rebalance_report(result: RebalanceResult) -> None:
     print()
 
     if not result.df_current_portfolio.empty:
-        print(os.path.basename(result.export_path))
+        portfolio_file = os.path.basename(result.export_path) if result.export_path else "<provided via DataFrame>"
+        print(f"Portfolio File: {portfolio_file}")
         if result.account_filter:
             print(result.account_filter.describe())
         else:
-            print("No ACCOUNT_FILTER specified \u2192 using ALL rows from export.")
+            print('Filter: (none) \u2192 using ALL rows from export.')
+        print(f'Symbol Column: "{result.symbol_column}"')
+        print(f'Value Column: "{result.value_column}"')
+        cash_list = ', '.join(f'"{t}"' for t in result.cash_pool_tickers)
+        print(f'_CASH = [{cash_list}]')
         print()
 
         header_text = 'Current_USD'
