@@ -86,6 +86,10 @@ so dollar amounts and account names are not committed by mistake.
         "value": "Kiss Portfolio"
       },
       "FILE_PATTERN": "Portfolio_Positions_*.csv",
+      "CASH_POOL_TICKERS": ["SPAXX**", "SHV", "USFR", "BIL", "SGOV", "Pending activity", "USD***"],
+      "SYMBOL_COLUMN": "Symbol",
+      "VALUE_COLUMN": "Current Value",
+      "SAFE_ASSET": "_CASH",
       "BILLS_PER_MONTH_IN_USD": "$21,303",
       "CASH_FOR_BILLS_IN_MONTHS": "0.6529",
       "TAX_OWED_IN_USD": "$0"
@@ -93,6 +97,9 @@ so dollar amounts and account names are not committed by mistake.
     "fidelity-crypto": {
       "display_name": "Fidelity Crypto",
       "FILE_PATTERN": "Portfolio_Positions_*.csv",
+      "CASH_POOL_TICKERS": [],
+      "SYMBOL_COLUMN": "Symbol",
+      "VALUE_COLUMN": "Current Value",
       "BILLS_PER_MONTH_IN_USD": 0,
       "CASH_FOR_BILLS_IN_MONTHS": 0,
       "TAX_OWED_IN_USD": 0
@@ -108,8 +115,11 @@ Top-level keys (no `portfolios` object) still work; the script treats the portfo
 Required per portfolio: `BILLS_PER_MONTH_IN_USD`, `CASH_FOR_BILLS_IN_MONTHS`, `TAX_OWED_IN_USD`. Dollar amounts may include `$` and commas.
 
 Optional: `ACCOUNT_FILTER` (`column` + `value` matched in the positions CSV), `FILE_PATTERN`,
-`display_name`, `SYMBOL_COLUMN`, `VALUE_COLUMN` (for non-Fidelity position exports or future API sources).
+`display_name`, `CASH_POOL_TICKERS`, `SYMBOL_COLUMN`, `VALUE_COLUMN` (for non-Fidelity position exports or future API sources),
+`SAFE_ASSET`.
 Legacy string values still work (treated as `Account Name` = that string).
+
+`SYMBOL_COLUMN` and `VALUE_COLUMN` let you adapt to other brokers' CSV exports. For non-CSV sources (e.g. future Coinbase API), load your data into a pandas DataFrame (with columns `Ticker` and `Current_Value`, or raw columns matching your settings) and pass it via the core API (see below).
 
 ## Portfolios in this repo
 
@@ -128,6 +138,8 @@ Logic lives in `rebal_core.py` (testable, no printing). `rebal.py` is the CLI.
 ./scripts/check.sh
 # or: pytest -q
 ```
+
+See `AGENTS.md` for the strict TDD rules followed by AI agents working on this project (all changes must be driven by tests covering happy paths, failure modes, and edges).
 
 Optional: run tests before every commit on **your machine only**:
 
@@ -177,6 +189,32 @@ python rebal.py fidelity --positions ~/Downloads/Portfolio_Positions_May.csv
 python rebal.py fidelity --positions ~/Downloads/
 
 python rebal.py --settings settings.json
+```
+
+### Advanced usage (e.g. future non-CSV / API sources)
+
+The CLI always loads from CSV files. For other data sources (such as a future Coinbase view-only API), load your positions into a DataFrame and call the core directly:
+
+```python
+import pandas as pd
+from rebal_core import run_rebalance, load_portfolio_config
+
+full_config, portfolio_config = load_portfolio_config('settings.json', 'fidelity')
+
+# Example: positions_df from API or other loader.
+# The DF can use your configured SYMBOL_COLUMN / VALUE_COLUMN,
+# or already be normalized to 'Ticker' / 'Current_Value'.
+positions_df = pd.DataFrame({...})   # your data here
+
+result = run_rebalance(
+    positions_df=positions_df,   # or omit for CSV
+    # export_path=... is not needed when positions_df is supplied
+    targets_file='alloc.fidelity.csv',
+    pct_of_max_file='pct_of_max_alloc.csv',
+    full_config=full_config,
+    portfolio_config=portfolio_config,
+)
+print_rebalance_report(result)
 ```
 
 Tests use synthetic data under `tests/fixtures/` only (no `~/Downloads/` required).

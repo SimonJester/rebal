@@ -31,6 +31,10 @@
       },
       "FILE_PATTERN": "Portfolio_Positions_*.csv",
       "CASH_POOL_TICKERS": [],
+      "_comment_SYMBOL_COLUMN": "Column in the positions export containing the ticker/symbol. Defaults to 'Symbol' for Fidelity-style CSVs.",
+      "SYMBOL_COLUMN": "Symbol",
+      "_comment_VALUE_COLUMN": "Column in the positions export containing the current value. Defaults to 'Current Value'. Value will be cleaned of $ and commas.",
+      "VALUE_COLUMN": "Current Value",
       "CASH_FOR_BILLS_IN_USD": 0,
       "CASH_FOR_BILLS_SOURCE": {
         "_comment_CASH_FOR_BILLS": "When CASH_FOR_BILLS_SOURCE is present with both keys (BILLS_PER_MONTH_IN_USD and CASH_FOR_BILLS_IN_MONTHS), its product overrides CASH_FOR_BILLS_IN_USD",
@@ -43,6 +47,10 @@
       "display_name": "Coinbase BTC",
       "FILE_PATTERN": "Portfolio_Positions_*.csv",
       "CASH_POOL_TICKERS": [],
+      "_comment_SYMBOL_COLUMN": "Column in the positions export containing the ticker/symbol. Defaults to 'Symbol' for Fidelity-style CSVs.",
+      "SYMBOL_COLUMN": "Symbol",
+      "_comment_VALUE_COLUMN": "Column in the positions export containing the current value. Defaults to 'Current Value'. Value will be cleaned of $ and commas.",
+      "VALUE_COLUMN": "Current Value",
       "CASH_FOR_BILLS_IN_USD": 0,
       "CASH_FOR_BILLS_SOURCE": {
         "_comment_CASH_FOR_BILLS": "When CASH_FOR_BILLS_SOURCE is present with both keys (BILLS_PER_MONTH_IN_USD and CASH_FOR_BILLS_IN_MONTHS), its product overrides CASH_FOR_BILLS_IN_USD",
@@ -55,6 +63,10 @@
       "display_name": "Coinbase ETH",
       "FILE_PATTERN": "Portfolio_Positions_*.csv",
       "CASH_POOL_TICKERS": [],
+      "_comment_SYMBOL_COLUMN": "Column in the positions export containing the ticker/symbol. Defaults to 'Symbol' for Fidelity-style CSVs.",
+      "SYMBOL_COLUMN": "Symbol",
+      "_comment_VALUE_COLUMN": "Column in the positions export containing the current value. Defaults to 'Current Value'. Value will be cleaned of $ and commas.",
+      "VALUE_COLUMN": "Current Value",
       "CASH_FOR_BILLS_IN_USD": 0,
       "CASH_FOR_BILLS_SOURCE": {
         "_comment_CASH_FOR_BILLS": "When CASH_FOR_BILLS_SOURCE is present with both keys (BILLS_PER_MONTH_IN_USD and CASH_FOR_BILLS_IN_MONTHS), its product overrides CASH_FOR_BILLS_IN_USD",

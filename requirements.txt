@@ -2,5 +2,5 @@
 pandas>=2.0,<3
 numpy>=1.24,<3
 
-# Testing (used starting in chunk 2)
+# Testing
 pytest>=7.0,<9

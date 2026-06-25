@@ -794,7 +794,7 @@ def run_rebalance(
         df_portfolio = df_portfolio[~df_portfolio['Ticker'].isin(IGNORE_PORTFOLIO_TICKERS)].copy()
     # If no Ticker column, leave as-is (later code will surface appropriate error)
 
-    # Per-portfolio cash pool (Chunk 2)
+    # Per-portfolio cash pool (from settings or default)
     cash_pool_symbols = get_cash_pool_symbols(portfolio_config)
 
     # Enforce: cash pool tickers must not have allocations

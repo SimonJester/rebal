@@ -875,6 +875,17 @@ def test_load_portfolio_config_sets_column_defaults_when_absent():
         assert port['VALUE_COLUMN'] == 'Current Value'
 
 
+def test_settings_example_has_symbol_value_columns_in_all_portfolios():
+    """settings.example.json must declare SYMBOL_COLUMN and VALUE_COLUMN for every portfolio for consistency and to prevent reserve-parsing bugs."""
+    import json
+    example_path = os.path.join(os.path.dirname(__file__), '..', 'settings.example.json')
+    with open(example_path) as f:
+        config = json.load(f)
+    for pkey, pconf in config['portfolios'].items():
+        assert 'SYMBOL_COLUMN' in pconf, f"Missing SYMBOL_COLUMN in portfolio {pkey} in settings.example.json"
+        assert 'VALUE_COLUMN' in pconf, f"Missing VALUE_COLUMN in portfolio {pkey} in settings.example.json"
+
+
 def test_parse_portfolio_export_no_account_filter_custom_cols(tmp_path):
     """parse without ACCOUNT_FILTER, using custom columns, produces correct normalized df."""
     header = 'Sym,Val'
