@@ -974,6 +974,147 @@ def test_run_rebalance_positions_df_pre_normalized_ignores_config_columns(tmp_pa
     assert res.df_current_portfolio.iloc[0]['Current_USD'] == pytest.approx(12345)
 
 
+def test_ignore_portfolio_tickers_display_and_trades(tmp_path):
+    """Test all combinations of ignore list membership and presence in portfolio input.
+
+    Cases covered (per requirements):
+    - ignored but not in portfolio -> not in owned, not in buy/sell
+    - ignored and in portfolio -> in owned as 'IGNORED', not in buy/sell
+    - not ignored and in portfolio -> in owned with numeric USD, may appear in trades
+    - not ignored and not in portfolio -> not in owned, not in buy/sell
+    """
+    import json
+
+    # Settings: define ignore list, no cash pool or reserves for simple calcs
+    settings = tmp_path / 'settings.json'
+    settings.write_text(json.dumps({
+        'default_portfolio': 't',
+        'portfolios': {
+            't': {
+                'display_name': 'Test',
+                'IGNORE_PORTFOLIO_TICKERS': ['LTCG', 'STCG'],
+                'CASH_POOL_TICKERS': [],
+                'CASH_FOR_BILLS_IN_USD': 0,
+                'TAX_OWED_IN_USD': 0,
+            }
+        }
+    }), encoding='utf-8')
+
+    # Alloc: 60/40 split so imbalanced positions will generate trades for non-ignored.
+    # We also include ignored tickers with 0% (sum still 100) to ensure the
+    # "0 dollar" version from targets does not leak into the owned list.
+    alloc = tmp_path / 'alloc.csv'
+    alloc.write_text(
+        'Asset_Type,Ticker,Max_Allocation_Pct\n'
+        'Stocks,AAA,60\nStocks,BBB,40\n'
+        'Ignored,LTCG,0\nIgnored,STCG,0\n',
+        encoding='utf-8'
+    )
+    pct = tmp_path / 'pct.csv'
+    pct.write_text('Asset_Type,Pct_of_Max\nStocks,100\nIgnored,0\n', encoding='utf-8')
+
+    fc, pc = load_portfolio_config(str(settings), 't')
+
+    # Positions contain:
+    # AAA (not ignored, in portfolio) -> numeric in owned, in trades
+    # BBB (not ignored, in portfolio) -> numeric in owned, in trades
+    # LTCG (ignored, in portfolio) -> 'IGNORED' in owned, not in trades
+    # (STCG is ignored but NOT in this portfolio)
+    pos_df = pd.DataFrame({
+        'Ticker': ['AAA', 'BBB', 'LTCG'],
+        'Current_Value': [10000.0, 2000.0, 3000.0],
+    })
+
+    res = run_rebalance(
+        positions_df=pos_df,
+        targets_file=str(alloc),
+        pct_of_max_file=str(pct),
+        full_config=fc,
+        portfolio_config=pc,
+    )
+
+    # Owned list checks
+    cur = res.df_current_portfolio.set_index('Ticker_Owned')['Current_USD']
+    owned_tickers = set(cur.index)
+
+    # No duplicate tickers should ever appear in the owned list
+    assert res.df_current_portfolio['Ticker_Owned'].value_counts().max() <= 1
+
+    # Case: not ignored + in portfolio
+    assert 'AAA' in owned_tickers
+    assert cur['AAA'] == pytest.approx(10000.0)
+    assert 'BBB' in owned_tickers
+    assert cur['BBB'] == pytest.approx(2000.0)
+
+    # Case: ignored + in portfolio -> only the IGNORED version, never a 0-dollar version
+    ltcg_rows = res.df_current_portfolio[res.df_current_portfolio['Ticker_Owned'] == 'LTCG']
+    assert len(ltcg_rows) == 1
+    assert ltcg_rows.iloc[0]['Current_USD'] == 'IGNORED'
+    assert 'LTCG' in owned_tickers
+    assert cur['LTCG'] == 'IGNORED'
+
+    # Case: ignored + not in portfolio (STCG) -> must not appear (even though we put 0% in alloc)
+    stcg_rows = res.df_current_portfolio[res.df_current_portfolio['Ticker_Owned'] == 'STCG']
+    assert len(stcg_rows) == 0
+    assert 'STCG' not in owned_tickers
+
+    # Case: not ignored + not in portfolio (arbitrary XXX not present anywhere)
+    assert 'XXX' not in owned_tickers
+
+    # Total should exclude ignored value (LTCG 3000)
+    assert res.total_portfolio_value == pytest.approx(12000.0)
+
+    # Trades checks
+    sell_tickers = set(res.trades_sell['Ticker']) if not res.trades_sell.empty else set()
+    buy_tickers = set(res.trades_buy['Ticker']) if not res.trades_buy.empty else set()
+    all_trade_tickers = sell_tickers | buy_tickers
+
+    # Ignored ticker in portfolio must NOT generate trades
+    assert 'LTCG' not in all_trade_tickers
+    assert 'STCG' not in all_trade_tickers
+
+    # Not-ignored in portfolio that are imbalanced DO generate trades
+    assert 'AAA' in sell_tickers
+    assert 'BBB' in buy_tickers
+
+    # Not ignored not in portfolio does not generate trades
+    assert 'XXX' not in all_trade_tickers
+
+    # Net trades still zero
+    all_trades = pd.concat([res.trades_sell, res.trades_buy], ignore_index=True) if not (res.trades_sell.empty and res.trades_buy.empty) else pd.DataFrame()
+    if not all_trades.empty:
+        assert abs(all_trades['Trade_Amount_USD'].sum()) < 0.02
+
+    # Also exercise the CSV/export_path path (parse_portfolio_export + capture)
+    csv_path = tmp_path / 'positions.csv'
+    csv_path.write_text(
+        'Symbol,Current Value\nAAA,"10000"\nBBB,"2000"\nLTCG,"3000"\n',
+        encoding='utf-8'
+    )
+    res_csv = run_rebalance(
+        export_path=str(csv_path),
+        targets_file=str(alloc),
+        pct_of_max_file=str(pct),
+        full_config=fc,
+        portfolio_config=pc,
+    )
+    cur_csv = res_csv.df_current_portfolio.set_index('Ticker_Owned')['Current_USD']
+    owned_csv = set(cur_csv.index)
+    # No duplicates in CSV path either
+    assert res_csv.df_current_portfolio['Ticker_Owned'].value_counts().max() <= 1
+    assert 'AAA' in owned_csv and cur_csv['AAA'] == pytest.approx(10000)
+    ltcg_csv = res_csv.df_current_portfolio[res_csv.df_current_portfolio['Ticker_Owned'] == 'LTCG']
+    assert len(ltcg_csv) == 1 and ltcg_csv.iloc[0]['Current_USD'] == 'IGNORED'
+    stcg_csv = res_csv.df_current_portfolio[res_csv.df_current_portfolio['Ticker_Owned'] == 'STCG']
+    assert len(stcg_csv) == 0
+    assert 'STCG' not in owned_csv
+    assert 'XXX' not in owned_csv
+    sell_csv = set(res_csv.trades_sell['Ticker']) if not res_csv.trades_sell.empty else set()
+    buy_csv = set(res_csv.trades_buy['Ticker']) if not res_csv.trades_buy.empty else set()
+    assert 'LTCG' not in (sell_csv | buy_csv)
+    assert 'AAA' in sell_csv and 'BBB' in buy_csv
+
+
 def test_run_rebalance_no_positions_source_raises():
     """Calling without export_path and without positions_df raises clear error."""
     full, pc = _load_fixture_config()

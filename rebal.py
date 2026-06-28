@@ -28,7 +28,10 @@ def get_max_currency_width(values):
     for value in values:
         if pd.isna(value):
             continue
-        num_str = f"{value:,.2f}"
+        if isinstance(value, (int, float)):
+            num_str = f"{value:,.2f}"
+        else:
+            num_str = str(value)
         max_len = max(max_len, len(num_str))
     return max(max_len, 4)
 
@@ -137,8 +140,13 @@ def print_rebalance_report(result: RebalanceResult) -> None:
         print(header_current)
         print(separator_current)
         for _, row in result.df_current_portfolio.iterrows():
-            num_str = f"{row['Current_USD']:>{num_align_w},.2f}"
-            print(f"{row['Ticker_Owned']:<{ticker_w}} {f'$ {num_str}':>{current_w}}")
+            val = row['Current_USD']
+            if isinstance(val, (int, float)):
+                num_str = f"{val:>{num_align_w},.2f}"
+                print(f"{row['Ticker_Owned']:<{ticker_w}} {f'$ {num_str}':>{current_w}}")
+            else:
+                display = str(val)
+                print(f"{row['Ticker_Owned']:<{ticker_w}} {display:>{current_w}}")
         print(separator_current)
         total_num_str = f"{result.total_portfolio_value:>{num_align_w},.2f}"
         print(f"{'TOTAL:':<{ticker_w}} {f'$ {total_num_str}':>{current_w}}")

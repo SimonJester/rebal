@@ -797,7 +797,7 @@ def run_rebalance(
     else:
         if export_path is None:
             raise RebalError("\n*** ERROR: No positions provided (export_path or positions_df) ***")
-        df_portfolio = parse_portfolio_export(export_path, account_filter, symbol_column, value_column, ignore_tickers)
+        df_portfolio = parse_portfolio_export(export_path, account_filter, symbol_column, value_column, ignore_tickers=[])
 
     # Ensure standard columns and filter ignored tickers (for both paths)
     if 'Ticker' not in df_portfolio.columns:
@@ -807,9 +807,17 @@ def run_rebalance(
         if value_column in df_portfolio.columns:
             df_portfolio = df_portfolio.rename(columns={value_column: 'Current_Value'})
 
-    if 'Ticker' in df_portfolio.columns:
+    # Capture tickers from the original input portfolio that match the ignore list.
+    # These are excluded from all calculations (totals, cash, trades, etc.) but will
+    # be shown specially in the Ticker_Owned report table.
+    ignored_from_portfolio = pd.DataFrame(columns=['Ticker', 'Current_Value'])
+    if 'Ticker' in df_portfolio.columns and 'Current_Value' in df_portfolio.columns:
         df_portfolio['Ticker'] = df_portfolio['Ticker'].astype(str).str.upper()
-        df_portfolio = df_portfolio[~df_portfolio['Ticker'].isin(ignore_tickers)].copy()
+        if ignore_tickers:
+            mask = df_portfolio['Ticker'].isin(ignore_tickers)
+            if mask.any():
+                ignored_from_portfolio = df_portfolio.loc[mask, ['Ticker', 'Current_Value']].copy()
+            df_portfolio = df_portfolio[~mask].copy()
     # If no Ticker column, leave as-is (later code will surface appropriate error)
 
     # Enforce: cash pool tickers must not have allocations
@@ -973,6 +981,21 @@ def run_rebalance(
                 df_current,
                 pd.DataFrame([{'Ticker': CASH_META_TICKER, 'Current_Value': 0.0}])
             ], ignore_index=True)
+
+    # Drop any ignore-listed tickers from the computed current holdings.
+    # (They may have been introduced with Current_Value=0 via the targets side
+    # of the merge.) We will re-add only the ones that were actually present
+    # in the input portfolio data, marked as "IGNORED".
+    if ignore_tickers:
+        df_current = df_current[~df_current['Ticker'].isin(ignore_tickers)].copy()
+
+    # For tickers that were present in the input portfolio data AND are on the
+    # ignore list, include them in the Ticker_Owned table but with Current_USD
+    # replaced by the string "IGNORED". These rows do not affect any calculations.
+    if not ignored_from_portfolio.empty:
+        ign = ignored_from_portfolio[['Ticker']].copy()
+        ign['Current_Value'] = 'IGNORED'
+        df_current = pd.concat([df_current, ign], ignore_index=True)
 
     df_current['is_cash'] = df_current['Ticker'] == CASH_META_TICKER
     df_current = df_current.sort_values(
