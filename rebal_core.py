@@ -24,7 +24,7 @@ NON_RESERVE_KEYS = {
     'ACCOUNT_FILTER', 'FILE_PATTERN', 'display_name', 'portfolio_key',
     'portfolios', 'default_portfolio', 'TARGETS_FILE',
     'CASH_FOR_BILLS_SOURCE', 'SAFE_ASSET', 'CASH_POOL_TICKERS',
-    'SYMBOL_COLUMN', 'VALUE_COLUMN',
+    'SYMBOL_COLUMN', 'VALUE_COLUMN', 'IGNORE_PORTFOLIO_TICKERS',
 }
 
 REQUIRED_ALLOC_COLS = ['Asset_Type', 'Ticker', 'Max_Allocation_Pct']
@@ -36,8 +36,6 @@ SPECIAL_RESERVE_TICKERS = [
 TICKERS_TO_EXCLUDE_INVESTED = [
     'CASH_RESERVE_USD', 'CASH_FOR_BILLS_IN_USD', 'TAX_OWED_IN_USD',
 ]
-
-IGNORE_PORTFOLIO_TICKERS = ['LTCG', 'STCG', 'INCOME']
 
 
 def get_cash_pool_symbols(portfolio_config: dict[str, Any]) -> list[str]:
@@ -58,6 +56,23 @@ def get_cash_pool_symbols(portfolio_config: dict[str, Any]) -> list[str]:
         return []
     # Fallback to default (for backward compat and existing setups)
     return [s.upper() for s in CASH_POOL_SYMBOLS]
+
+
+def get_ignore_portfolio_tickers(portfolio_config: dict[str, Any]) -> list[str]:
+    """Return tickers to filter out of positions for this portfolio.
+
+    Empty list (or list with only "") is valid and ignores nothing.
+    If the key is not present in the portfolio config, nothing is ignored.
+    """
+    if 'IGNORE_PORTFOLIO_TICKERS' in portfolio_config:
+        raw = portfolio_config['IGNORE_PORTFOLIO_TICKERS']
+        if raw is None:
+            return []
+        if isinstance(raw, (list, tuple)):
+            cleaned = [str(x).strip().upper() for x in raw if str(x).strip()]
+            return cleaned
+        return []
+    return []
 
 
 class RebalError(Exception):
@@ -488,11 +503,13 @@ def parse_portfolio_export(
     account_filter: AccountFilter | None,
     symbol_col: str = 'Symbol',
     value_col: str = 'Current Value',
+    ignore_tickers: list[str] | None = None,
 ) -> pd.DataFrame:
     """Parse a positions export CSV into Ticker / Current_Value.
 
     Column names are configurable to support different brokers (e.g. future Coinbase API).
     Defaults match Fidelity-style exports.
+    ignore_tickers: per-portfolio list from settings (empty list ignores nothing).
     """
     try:
         df_raw = pd.read_csv(
@@ -547,7 +564,10 @@ def parse_portfolio_export(
         inplace=True,
     )
     df_clean['Ticker'] = df_clean['Ticker'].str.upper()
-    return df_clean[~df_clean['Ticker'].isin(IGNORE_PORTFOLIO_TICKERS)].copy()
+    if ignore_tickers is None:
+        ignore_tickers = []
+    to_ignore = [str(x).strip().upper() for x in ignore_tickers if str(x).strip()]
+    return df_clean[~df_clean['Ticker'].isin(to_ignore)].copy()
 
 
 def validate_cash_and_invested_alloc(df_targets: pd.DataFrame) -> None:
@@ -762,6 +782,8 @@ def run_rebalance(
         cash_pool_tickers = [str(x).strip() for x in raw_cash if str(x).strip()]
     cash_pool_symbols = [s.upper() for s in cash_pool_tickers]
 
+    ignore_tickers = get_ignore_portfolio_tickers(portfolio_config)
+
     df_targets_raw = load_targets_raw(targets_file)
     df_pct_of_max = load_pct_of_max(pct_of_max_file)
     df_targets = merge_targets_with_pct(
@@ -775,7 +797,7 @@ def run_rebalance(
     else:
         if export_path is None:
             raise RebalError("\n*** ERROR: No positions provided (export_path or positions_df) ***")
-        df_portfolio = parse_portfolio_export(export_path, account_filter, symbol_column, value_column)
+        df_portfolio = parse_portfolio_export(export_path, account_filter, symbol_column, value_column, ignore_tickers)
 
     # Ensure standard columns and filter ignored tickers (for both paths)
     if 'Ticker' not in df_portfolio.columns:
@@ -787,7 +809,7 @@ def run_rebalance(
 
     if 'Ticker' in df_portfolio.columns:
         df_portfolio['Ticker'] = df_portfolio['Ticker'].astype(str).str.upper()
-        df_portfolio = df_portfolio[~df_portfolio['Ticker'].isin(IGNORE_PORTFOLIO_TICKERS)].copy()
+        df_portfolio = df_portfolio[~df_portfolio['Ticker'].isin(ignore_tickers)].copy()
     # If no Ticker column, leave as-is (later code will surface appropriate error)
 
     # Enforce: cash pool tickers must not have allocations
