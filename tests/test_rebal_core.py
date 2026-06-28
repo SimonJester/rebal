@@ -1114,6 +1114,22 @@ def test_ignore_portfolio_tickers_display_and_trades(tmp_path):
     assert 'LTCG' not in (sell_csv | buy_csv)
     assert 'AAA' in sell_csv and 'BBB' in buy_csv
 
+    # When an ignored ticker has positive allocation in the alloc file
+    # (making non-ignored sum != 100), it must be a halting error with specific message.
+    bad_alloc = tmp_path / 'bad_alloc.csv'
+    bad_alloc.write_text(
+        'Asset_Type,Ticker,Max_Allocation_Pct\nStocks,AAA,55\nStocks,BBB,40\nStocks,LTCG,5\n',
+        encoding='utf-8'
+    )
+    with pytest.raises(RebalError, match='CANNOT IGNORE TICKER REQUIRED FOR ALLOCATION SUM'):
+        run_rebalance(
+            positions_df=pos_df,
+            targets_file=str(bad_alloc),
+            pct_of_max_file=str(pct),
+            full_config=fc,
+            portfolio_config=pc,
+        )
+
 
 def test_run_rebalance_no_positions_source_raises():
     """Calling without export_path and without positions_df raises clear error."""

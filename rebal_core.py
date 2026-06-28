@@ -570,7 +570,12 @@ def parse_portfolio_export(
     return df_clean[~df_clean['Ticker'].isin(to_ignore)].copy()
 
 
-def validate_cash_and_invested_alloc(df_targets: pd.DataFrame) -> None:
+def validate_cash_and_invested_alloc(df_targets: pd.DataFrame, ignore_tickers: list[str] | None = None) -> None:
+    if ignore_tickers is None:
+        ignore_tickers = []
+    ignore_set = set(ignore_tickers)
+
+    # Check the full sum (as loaded from alloc, which must be 100 including any ignored lines)
     df_invested = df_targets[~df_targets['Ticker'].isin(TICKERS_TO_EXCLUDE_INVESTED)].copy()
     max_pct_sum = df_invested['Max_Allocation_Pct'].sum()
     if abs(max_pct_sum - 100.0) > 1e-6:
@@ -578,6 +583,28 @@ def validate_cash_and_invested_alloc(df_targets: pd.DataFrame) -> None:
             "\n*** ERROR: MAX ALLOCATION SUM VIOLATION! ***\n"
             "The sum of 'Max_Allocation_Pct' for all non-CASH assets must be 100.0."
         )
+
+    # If any ignored tickers have positive allocation in the alloc, the effective sum
+    # for the remaining non-ignored non-reserve tickers will be < 100. This is not allowed.
+    effective_invested = df_targets[
+        ~df_targets['Ticker'].isin(set(TICKERS_TO_EXCLUDE_INVESTED) | ignore_set)
+    ].copy()
+    effective_sum = effective_invested['Max_Allocation_Pct'].sum()
+    if abs(effective_sum - 100.0) > 1e-6:
+        offending = [
+            t for t in ignore_set
+            if t in df_targets['Ticker'].values and df_targets[df_targets['Ticker'] == t]['Max_Allocation_Pct'].sum() > 0
+        ]
+        lines = [
+            "\n*** ERROR: CANNOT IGNORE TICKER REQUIRED FOR ALLOCATION SUM ***",
+            "The sum of 'Max_Allocation_Pct' for all non-CASH assets must be 100.0.",
+            "You cannot ignore an asset that is required to make that sum equal 100 percent.",
+        ]
+        if offending:
+            lines.append(f"Offending ignored ticker(s) with positive Max_Allocation_Pct: {', '.join(sorted(offending))}")
+        lines.append("Remove the ticker from IGNORE_PORTFOLIO_TICKERS in settings.json,")
+        lines.append("or remove/adjust its line in the alloc file so the non-ignored assets sum to exactly 100.")
+        raise RebalError("\n".join(lines))
 
 
 def _validate_cash_pool_tickers_not_allocated(
@@ -639,16 +666,18 @@ def _build_classic_cash_trades(df_rebalance: pd.DataFrame) -> pd.DataFrame:
     net_non_cash = df_trades['Trade_Amount_USD'].sum()
     cash_pool_trade = -net_non_cash
     if abs(cash_pool_trade) > 0.01:
-        cash_row_data = df_rebalance[
-            df_rebalance['Ticker'] == CASH_META_TICKER
-        ].iloc[0]
-        cash_pool_row = pd.DataFrame([{
-            'Ticker': CASH_META_TICKER,
-            'Trade_Amount_USD': cash_pool_trade,
-            'Target_Allocation': cash_row_data['Target_Allocation'],
-            'Current_Pct': cash_row_data['Current_Pct'],
-        }])
-        df_trades = pd.concat([df_trades, cash_pool_row], ignore_index=True)
+        cash_rows = df_rebalance[df_rebalance['Ticker'] == CASH_META_TICKER]
+        if not cash_rows.empty:
+            cash_row_data = cash_rows.iloc[0]
+            cash_pool_row = pd.DataFrame([{
+                'Ticker': CASH_META_TICKER,
+                'Trade_Amount_USD': cash_pool_trade,
+                'Target_Allocation': cash_row_data['Target_Allocation'],
+                'Current_Pct': cash_row_data['Current_Pct'],
+            }])
+            df_trades = pd.concat([df_trades, cash_pool_row], ignore_index=True)
+        # else: no cash row in this rebalance (e.g. CASH_POOL_TICKERS=[]), so do not
+        # synthesize a cash mirror trade. The non-cash trades may net non-zero.
     return df_trades
 
 
@@ -807,9 +836,12 @@ def run_rebalance(
         if value_column in df_portfolio.columns:
             df_portfolio = df_portfolio.rename(columns={value_column: 'Current_Value'})
 
-    # Capture tickers from the original input portfolio that match the ignore list.
-    # These are excluded from all calculations (totals, cash, trades, etc.) but will
-    # be shown specially in the Ticker_Owned report table.
+    # Capture tickers from the original input portfolio (the "portfolio list first received")
+    # that match IGNORE_PORTFOLIO_TICKERS.  They are stripped here so that from this point on
+    # the portfolio is treated "as if it never had those tickers/assets" for every calculation
+    # (invested value, total, cash, targets matching, trade generation, etc.).
+    # Only for the final Ticker_Owned report do we surface the fact that they were present
+    # (with Current_USD replaced by the string "IGNORED").
     ignored_from_portfolio = pd.DataFrame(columns=['Ticker', 'Current_Value'])
     if 'Ticker' in df_portfolio.columns and 'Current_Value' in df_portfolio.columns:
         df_portfolio['Ticker'] = df_portfolio['Ticker'].astype(str).str.upper()
@@ -823,7 +855,7 @@ def run_rebalance(
     # Enforce: cash pool tickers must not have allocations
     _validate_cash_pool_tickers_not_allocated(df_targets, cash_pool_symbols, display_name)
 
-    validate_cash_and_invested_alloc(df_targets)
+    validate_cash_and_invested_alloc(df_targets, ignore_tickers)
 
     # --- Resolve cash reserve directly from settings (not dataframe) ---
     reserve_settings = _get_reserve_settings(full_config, portfolio_config)
@@ -896,6 +928,12 @@ def run_rebalance(
         on='Ticker',
         how='outer',
     ).fillna(0.0)
+
+    # After building the rebalance universe, drop any ignore-listed tickers.
+    # This ensures ignored tickers (from the received portfolio) never participate
+    # in trade generation, even if they appear in the alloc targets.
+    if ignore_tickers:
+        df_rebalance = df_rebalance[~df_rebalance['Ticker'].isin(ignore_tickers)].copy()
 
     df_rebalance['Target_Allocation_Dec'] = df_rebalance['Target_Allocation'] / 100.0
     df_rebalance['Target_Value'] = (
