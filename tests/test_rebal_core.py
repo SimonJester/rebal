@@ -848,6 +848,71 @@ def test_parse_portfolio_export_direct_custom(tmp_path):
     assert df['Current_Value'].iloc[0] == pytest.approx(12345.67)
 
 
+def test_resolve_dataframe_column_exact_and_case_insensitive():
+    from rebal_core import resolve_dataframe_column
+
+    cols = pd.Index(['Account name', 'Symbol', 'Current Value'])
+    assert resolve_dataframe_column(cols, 'Account name') == 'Account name'
+    assert resolve_dataframe_column(cols, 'Account Name') == 'Account name'
+    assert resolve_dataframe_column(cols, 'ACCOUNT NAME') == 'Account name'
+    assert resolve_dataframe_column(cols, 'symbol') == 'Symbol'
+
+
+def test_resolve_dataframe_column_missing_raises():
+    from rebal_core import resolve_dataframe_column
+
+    cols = pd.Index(['Account name', 'Symbol', 'Current Value'])
+    with pytest.raises(RebalError, match="Account Number"):
+        resolve_dataframe_column(cols, 'Account Number')
+
+
+def test_parse_portfolio_export_account_filter_case_insensitive_header(tmp_path):
+    """Fidelity renamed 'Account Name' → 'Account name'; settings may still use old casing."""
+    csv_path = tmp_path / 'positions.csv'
+    csv_path.write_text(
+        'Account name,Symbol,Current Value\n'
+        'Kiss Portfolio,VTI,"$1,000.00"\n'
+        'Other Account,VXUS,"$500.00"\n',
+        encoding='utf-8',
+    )
+    filt = AccountFilter(column='Account Name', value='Kiss Portfolio')
+    df = parse_portfolio_export(str(csv_path), filt)
+    assert list(df['Ticker']) == ['VTI']
+    assert df['Current_Value'].iloc[0] == pytest.approx(1000.0)
+
+
+def test_parse_portfolio_export_account_filter_legacy_header_still_works(tmp_path):
+    """Old Fidelity header 'Account Name' continues to work with matching settings."""
+    csv_path = tmp_path / 'positions.csv'
+    csv_path.write_text(
+        'Account Name,Symbol,Current Value\n'
+        'Kiss Portfolio,VTI,"$1,000.00"\n',
+        encoding='utf-8',
+    )
+    filt = AccountFilter(column='Account Name', value='Kiss Portfolio')
+    df = parse_portfolio_export(str(csv_path), filt)
+    assert list(df['Ticker']) == ['VTI']
+
+
+def test_parse_portfolio_export_symbol_value_columns_case_insensitive(tmp_path):
+    """Symbol / value column headers also match case-insensitively."""
+    csv_path = tmp_path / 'positions.csv'
+    csv_path.write_text(
+        'Account name,symbol,current value\n'
+        'Test,vti,"$2,500.00"\n',
+        encoding='utf-8',
+    )
+    filt = AccountFilter(column='Account Name', value='Test')
+    df = parse_portfolio_export(
+        str(csv_path),
+        filt,
+        symbol_col='Symbol',
+        value_col='Current Value',
+    )
+    assert list(df['Ticker']) == ['VTI']
+    assert df['Current_Value'].iloc[0] == pytest.approx(2500.0)
+
+
 # --- More explicit happy-path and failure-case tests for column config + positions_df ---
 
 def test_load_portfolio_config_sets_column_defaults_when_absent():

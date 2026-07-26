@@ -29,3 +29,6 @@ settings.json
 Portfolio_Positions_*.csv
 *Positions*.csv
 !tests/fixtures/Portfolio_Positions_*.csv
+
+# Local agent issue tracker / scratch (may contain personal notes)
+.scratch/

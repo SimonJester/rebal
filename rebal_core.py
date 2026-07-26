@@ -498,6 +498,34 @@ def normalize_targets(df_targets: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def resolve_dataframe_column(columns: Any, configured: str) -> str:
+    """Map a configured column name to the actual header in a DataFrame/Index.
+
+    Prefers an exact match. If none, matches case-insensitively (casefold) so
+    broker renames like 'Account Name' → 'Account name' still work without
+    changing settings.json.
+    """
+    configured = str(configured).strip()
+    col_list = [str(c) for c in list(columns)]
+    if configured in col_list:
+        return configured
+
+    needle = configured.casefold()
+    matches = [c for c in col_list if c.casefold() == needle]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise RebalError(
+            f"\n*** ERROR: AMBIGUOUS COLUMN NAME ***\n"
+            f"Configured column '{configured}' matches multiple headers "
+            f"(case-insensitive): {matches}."
+        )
+    raise RebalError(
+        f"\n*** ERROR: POSITIONS FILE MISSING COLUMN ***\n"
+        f"Expected column '{configured}', which is not in the export."
+    )
+
+
 def parse_portfolio_export(
     export_path: str,
     account_filter: AccountFilter | None,
@@ -508,7 +536,8 @@ def parse_portfolio_export(
     """Parse a positions export CSV into Ticker / Current_Value.
 
     Column names are configurable to support different brokers (e.g. future Coinbase API).
-    Defaults match Fidelity-style exports.
+    Defaults match Fidelity-style exports. Configured names match export headers
+    case-insensitively (e.g. 'Account Name' vs 'Account name').
     ignore_tickers: per-portfolio list from settings (empty list ignores nothing).
     """
     try:
@@ -528,39 +557,45 @@ def parse_portfolio_export(
     df_raw.columns = df_raw.columns.str.strip()
 
     if account_filter:
-        column = account_filter.column
-        if column not in df_raw.columns:
+        try:
+            column = resolve_dataframe_column(df_raw.columns, account_filter.column)
+        except RebalError:
             raise RebalError(
                 f"\n*** ERROR: POSITIONS FILE MISSING FILTER COLUMN ***\n"
-                f"ACCOUNT_FILTER expects column '{column}', which is not in the export."
-            )
+                f"ACCOUNT_FILTER expects column '{account_filter.column}', "
+                f"which is not in the export."
+            ) from None
         df_raw[column] = df_raw[column].astype(str).str.strip()
         df_filtered = df_raw[df_raw[column] == account_filter.value].copy()
     else:
         df_filtered = df_raw.copy()
 
-    if value_col not in df_filtered.columns:
+    try:
+        value_col_actual = resolve_dataframe_column(df_filtered.columns, value_col)
+    except RebalError:
         raise RebalError(
             f"\n*** ERROR: Export file is missing the required column "
             f"'{value_col}'. ***"
-        )
+        ) from None
 
-    df_filtered[value_col] = pd.to_numeric(
-        df_filtered[value_col].astype(str)
+    df_filtered[value_col_actual] = pd.to_numeric(
+        df_filtered[value_col_actual].astype(str)
         .str.replace('$', '', regex=False)
         .str.replace(',', '', regex=False),
         errors='coerce',
     ).fillna(0.0)
 
     try:
-        df_clean = df_filtered[[symbol_col, value_col]].copy()
-    except KeyError as e:
+        symbol_col_actual = resolve_dataframe_column(df_filtered.columns, symbol_col)
+    except RebalError as e:
         raise RebalError(
-            f"\n*** ERROR: Export file is missing the required column {e}. ***"
-        ) from None
+            f"\n*** ERROR: Export file is missing the required column "
+            f"'{symbol_col}'. ***"
+        ) from e
 
+    df_clean = df_filtered[[symbol_col_actual, value_col_actual]].copy()
     df_clean.rename(
-        columns={symbol_col: 'Ticker', value_col: 'Current_Value'},
+        columns={symbol_col_actual: 'Ticker', value_col_actual: 'Current_Value'},
         inplace=True,
     )
     df_clean['Ticker'] = df_clean['Ticker'].str.upper()

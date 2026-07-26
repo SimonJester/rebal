@@ -55,4 +55,14 @@
 - Provide diffs or summaries of changes.
 - End with verification steps for the human.
 
+## Agent skills
+
+### Issue tracker
+
+Issues live as local markdown under `.scratch/` (not GitHub). See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context layout: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
+
 Follow these rules on every task without exception.
